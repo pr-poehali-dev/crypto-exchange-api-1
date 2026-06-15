@@ -18,6 +18,7 @@ const PAIRS: Pair[] = [
   { symbol: 'AVAX/USDT', base: 'Avalanche', price: 38.27, change: 4.18, vol: '94M' },
   { symbol: 'LINK/USDT', base: 'Chainlink', price: 17.83, change: 3.05, vol: '71M' },
   { symbol: 'ADA/USDT', base: 'Cardano', price: 0.4521, change: -0.41, vol: '63M' },
+  { symbol: 'RUB/USDT', base: 'Рубль', price: 0.0108, change: 0.23, vol: '88M' },
 ];
 
 const NAV = [
