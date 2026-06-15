@@ -68,29 +68,29 @@ function CandleChart() {
     }
     return arr;
   }, []);
-  const all = candles.flatMap((c) => [c.h, c.l]);
-  const max = Math.max(...all);
-  const min = Math.min(...all);
+  const all = candles.flatMap((candle) => [candle.h, candle.l]);
+  const max = all.length ? Math.max(...all) : 1;
+  const min = all.length ? Math.min(...all) : 0;
   const range = max - min || 1;
   const W = 760;
   const H = 320;
-  const cw = W / candles.length;
+  const cw = candles.length ? W / candles.length : W;
   const y = (v: number) => H - ((v - min) / range) * H;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
-      {candles.map((c, i) => {
-        const up = c.c >= c.o;
+      {candles.map((candle, i) => {
+        const up = candle.c >= candle.o;
         const color = up ? 'hsl(var(--buy))' : 'hsl(var(--sell))';
         const x = i * cw + cw / 2;
         return (
           <g key={i}>
-            <line x1={x} x2={x} y1={y(c.h)} y2={y(c.l)} stroke={color} strokeWidth={1} />
+            <line x1={x} x2={x} y1={y(candle.h)} y2={y(candle.l)} stroke={color} strokeWidth={1} />
             <rect
               x={i * cw + cw * 0.18}
               width={cw * 0.64}
-              y={y(Math.max(c.o, c.c))}
-              height={Math.max(2, Math.abs(y(c.o) - y(c.c)))}
+              y={y(Math.max(candle.o, candle.c))}
+              height={Math.max(2, Math.abs(y(candle.o) - y(candle.c)))}
               fill={color}
             />
           </g>
