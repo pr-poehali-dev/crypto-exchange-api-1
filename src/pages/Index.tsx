@@ -7,19 +7,74 @@ interface Pair {
   price: number;
   change: number;
   vol: string;
+  livePrice?: number;
 }
 
 const PAIRS: Pair[] = [
-  { symbol: 'BTC/USDT', base: 'Bitcoin', price: 67432.18, change: 2.41, vol: '1.24B' },
-  { symbol: 'ETH/USDT', base: 'Ethereum', price: 3521.74, change: 1.86, vol: '842M' },
-  { symbol: 'SOL/USDT', base: 'Solana', price: 178.92, change: -0.74, vol: '410M' },
-  { symbol: 'BNB/USDT', base: 'BNB', price: 612.45, change: 0.52, vol: '198M' },
-  { symbol: 'XRP/USDT', base: 'Ripple', price: 0.6184, change: -1.32, vol: '156M' },
-  { symbol: 'AVAX/USDT', base: 'Avalanche', price: 38.27, change: 4.18, vol: '94M' },
-  { symbol: 'LINK/USDT', base: 'Chainlink', price: 17.83, change: 3.05, vol: '71M' },
-  { symbol: 'ADA/USDT', base: 'Cardano', price: 0.4521, change: -0.41, vol: '63M' },
+  { symbol: 'BTC/USDT', base: 'Bitcoin', price: 67432.18, change: 0, vol: '—' },
+  { symbol: 'ETH/USDT', base: 'Ethereum', price: 3521.74, change: 0, vol: '—' },
+  { symbol: 'SOL/USDT', base: 'Solana', price: 178.92, change: 0, vol: '—' },
+  { symbol: 'BNB/USDT', base: 'BNB', price: 612.45, change: 0, vol: '—' },
+  { symbol: 'XRP/USDT', base: 'Ripple', price: 0.6184, change: 0, vol: '—' },
+  { symbol: 'AVAX/USDT', base: 'Avalanche', price: 38.27, change: 0, vol: '—' },
+  { symbol: 'LINK/USDT', base: 'Chainlink', price: 17.83, change: 0, vol: '—' },
+  { symbol: 'ADA/USDT', base: 'Cardano', price: 0.4521, change: 0, vol: '—' },
   { symbol: 'RUB/USDT', base: 'Рубль', price: 0.0108, change: 0.23, vol: '88M' },
 ];
+
+// Символы Binance (без RUB/USDT — её нет на бирже)
+const BINANCE_SYMBOLS = PAIRS
+  .filter(p => p.symbol !== 'RUB/USDT')
+  .map(p => p.symbol.replace('/', '').toLowerCase());
+
+interface TickerMap {
+  [symbol: string]: { price: number; change: number; vol: string; dir: 'up' | 'down' };
+}
+
+function useBinanceTicker() {
+  const [tickers, setTickers] = useState<TickerMap>({});
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    const streams = BINANCE_SYMBOLS.map(s => `${s}@ticker`).join('/');
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => setConnected(false);
+    ws.onerror = () => setConnected(false);
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        const d = msg.data;
+        if (!d || !d.s) return;
+        const symbol = d.s.slice(0, -4) + '/' + d.s.slice(-4);
+        const price = parseFloat(d.c);
+        const change = parseFloat(d.P);
+        const rawVol = parseFloat(d.q);
+        const vol = rawVol >= 1e9
+          ? (rawVol / 1e9).toFixed(2) + 'B'
+          : rawVol >= 1e6
+          ? (rawVol / 1e6).toFixed(0) + 'M'
+          : rawVol.toFixed(0);
+
+        setTickers(prev => ({
+          ...prev,
+          [symbol]: {
+            price,
+            change,
+            vol,
+            dir: price > (prev[symbol]?.price ?? price) ? 'up' : 'down',
+          },
+        }));
+      } catch (_) { /* ignore malformed messages */ }
+    };
+
+    return () => ws.close();
+  }, []);
+
+  return { tickers, connected };
+}
 
 const NAV = [
   { id: 'trade', label: 'Терминал', icon: 'CandlestickChart' },
@@ -193,7 +248,7 @@ function OrderForm({ pair }: { pair: Pair }) {
       <div className="space-y-1">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Цена</label>
         <div className="flex items-center bg-secondary rounded-md px-3">
-          <input value={fmtPrice(pair.price)} readOnly className="flex-1 bg-transparent py-2.5 font-mono-num text-sm outline-none" />
+          <input value={fmtPrice(pair.livePrice ?? pair.price)} readOnly className="flex-1 bg-transparent py-2.5 font-mono-num text-sm outline-none" />
           <span className="text-xs text-muted-foreground">USDT</span>
         </div>
       </div>
@@ -251,7 +306,19 @@ function Panel({ title, action, children, className = '' }: { title: string; act
 const Index = () => {
   const [active, setActive] = useState('trade');
   const [selectedPair, setSelectedPair] = useState<Pair>(PAIRS[0]);
-  const livePrice = useLivePrice(selectedPair.price);
+  const { tickers, connected } = useBinanceTicker();
+
+  // Для RUB/USDT используем симуляцию, для остальных — Binance
+  const rubSimulated = useLivePrice(0.0108);
+
+  const getPairData = (pair: Pair) => {
+    if (pair.symbol === 'RUB/USDT') {
+      return { price: rubSimulated.price, change: pair.change, vol: pair.vol, dir: rubSimulated.dir };
+    }
+    return tickers[pair.symbol] ?? { price: pair.price, change: pair.change, vol: pair.vol, dir: 'up' as const };
+  };
+
+  const selectedLive = getPairData(selectedPair);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -279,8 +346,8 @@ const Index = () => {
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="w-1.5 h-1.5 rounded-full bg-buy animate-pulse-live" />
-            Ликвидность · 14 источников
+            <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-buy animate-pulse-live' : 'bg-sell'}`} />
+            {connected ? 'Binance · LIVE' : 'Подключение...'}
           </span>
           <button className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
             Войти
@@ -290,15 +357,22 @@ const Index = () => {
 
       {/* Ticker bar */}
       <div className="h-10 border-b border-border flex items-center gap-6 px-4 overflow-x-auto scrollbar-thin shrink-0">
-        {PAIRS.map((p) => (
-          <div key={p.symbol} className="flex items-center gap-2 shrink-0 text-xs">
-            <span className="text-muted-foreground">{p.symbol}</span>
-            <span className="font-mono-num">{fmtPrice(p.price)}</span>
-            <span className={`font-mono-num ${p.change >= 0 ? 'text-buy' : 'text-sell'}`}>
-              {p.change >= 0 ? '+' : ''}{p.change.toFixed(2)}%
-            </span>
-          </div>
-        ))}
+        <span className="flex items-center gap-1.5 text-[10px] shrink-0 text-muted-foreground">
+          <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-buy animate-pulse-live' : 'bg-sell'}`} />
+          {connected ? 'LIVE' : 'ОФЛАЙН'}
+        </span>
+        {PAIRS.map((p) => {
+          const live = getPairData(p);
+          return (
+            <button key={p.symbol} onClick={() => setSelectedPair(p)} className="flex items-center gap-2 shrink-0 text-xs hover:opacity-80 transition-opacity">
+              <span className={`font-medium ${selectedPair.symbol === p.symbol ? 'text-primary' : 'text-muted-foreground'}`}>{p.symbol}</span>
+              <span className="font-mono-num">{fmtPrice(live.price)}</span>
+              <span className={`font-mono-num ${live.change >= 0 ? 'text-buy' : 'text-sell'}`}>
+                {live.change >= 0 ? '+' : ''}{live.change.toFixed(2)}%
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Main grid */}
@@ -306,27 +380,32 @@ const Index = () => {
         {/* Left: markets list */}
         <Panel title="Рынки" action={<Icon name="Search" size={14} className="text-muted-foreground" />} className="order-2 lg:order-1 h-[360px] lg:h-auto">
           <div className="overflow-y-auto scrollbar-thin h-full">
-            {PAIRS.map((p, i) => (
-              <button
-                key={p.symbol}
-                onClick={() => setSelectedPair(p)}
-                className={`w-full flex items-center justify-between px-4 py-2.5 transition-colors border-b border-border/50 animate-fade-in ${
-                  selectedPair.symbol === p.symbol ? 'bg-secondary border-l-2 border-l-primary' : 'hover:bg-secondary/60'
-                }`}
-                style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}
-              >
-                <div className="text-left">
-                  <div className="text-sm font-medium">{p.symbol}</div>
-                  <div className="text-[10px] text-muted-foreground">Vol {p.vol}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-mono-num">{fmtPrice(p.price)}</div>
-                  <div className={`text-[11px] font-mono-num ${p.change >= 0 ? 'text-buy' : 'text-sell'}`}>
-                    {p.change >= 0 ? '+' : ''}{p.change.toFixed(2)}%
+            {PAIRS.map((p, i) => {
+              const live = getPairData(p);
+              return (
+                <button
+                  key={p.symbol}
+                  onClick={() => setSelectedPair(p)}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 transition-colors border-b border-border/50 animate-fade-in ${
+                    selectedPair.symbol === p.symbol ? 'bg-secondary border-l-2 border-l-primary' : 'hover:bg-secondary/60'
+                  }`}
+                  style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}
+                >
+                  <div className="text-left">
+                    <div className="text-sm font-medium">{p.symbol}</div>
+                    <div className="text-[10px] text-muted-foreground">Vol {live.vol}</div>
                   </div>
-                </div>
-              </button>
-            ))}
+                  <div className="text-right">
+                    <div className={`text-sm font-mono-num transition-colors ${live.dir === 'up' ? 'text-buy' : 'text-sell'}`}>
+                      {fmtPrice(live.price)}
+                    </div>
+                    <div className={`text-[11px] font-mono-num ${live.change >= 0 ? 'text-buy' : 'text-sell'}`}>
+                      {live.change >= 0 ? '+' : ''}{live.change.toFixed(2)}%
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </Panel>
 
@@ -340,11 +419,11 @@ const Index = () => {
                   <span className="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-muted-foreground uppercase">Margin 100x</span>
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className={`font-mono-num text-xl font-semibold ${livePrice.dir === 'up' ? 'text-buy' : 'text-sell'}`}>
-                    {fmtPrice(livePrice.price)}
+                  <span className={`font-mono-num text-xl font-semibold transition-colors ${selectedLive.dir === 'up' ? 'text-buy' : 'text-sell'}`}>
+                    {fmtPrice(selectedLive.price)}
                   </span>
-                  <span className={`font-mono-num text-sm ${selectedPair.change >= 0 ? 'text-buy' : 'text-sell'}`}>
-                    {selectedPair.change >= 0 ? '+' : ''}{selectedPair.change.toFixed(2)}%
+                  <span className={`font-mono-num text-sm ${selectedLive.change >= 0 ? 'text-buy' : 'text-sell'}`}>
+                    {selectedLive.change >= 0 ? '+' : ''}{selectedLive.change.toFixed(2)}%
                   </span>
                 </div>
               </div>
@@ -367,7 +446,7 @@ const Index = () => {
 
         {/* Right: order form */}
         <Panel title="Маржинальный ордер" action={<Icon name="Settings2" size={14} className="text-muted-foreground" />} className="order-3">
-          <OrderForm pair={selectedPair} />
+          <OrderForm pair={{ ...selectedPair, livePrice: selectedLive.price }} />
         </Panel>
       </main>
 
