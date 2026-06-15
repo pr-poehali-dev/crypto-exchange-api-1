@@ -54,20 +54,21 @@ function useLivePrice(base: number) {
   return { price, dir };
 }
 
-function CandleChart() {
+function CandleChart({ pair }: { pair: Pair }) {
   const candles = useMemo(() => {
     const arr: { o: number; c: number; h: number; l: number }[] = [];
-    let last = 66800;
+    let last = pair.price;
+    const volatility = pair.price * 0.006;
     for (let i = 0; i < 48; i++) {
       const o = last;
-      const c = o + (Math.random() - 0.48) * 380;
-      const h = Math.max(o, c) + Math.random() * 160;
-      const l = Math.min(o, c) - Math.random() * 160;
+      const c = o + (Math.random() - 0.48) * volatility;
+      const h = Math.max(o, c) + Math.random() * volatility * 0.4;
+      const l = Math.min(o, c) - Math.random() * volatility * 0.4;
       arr.push({ o, c, h, l });
       last = c;
     }
     return arr;
-  }, []);
+  }, [pair.symbol]);
   const all = candles.flatMap((candle) => [candle.h, candle.l]);
   const max = all.length ? Math.max(...all) : 1;
   const min = all.length ? Math.min(...all) : 0;
@@ -145,10 +146,11 @@ function OrderBook() {
   );
 }
 
-function OrderForm() {
+function OrderForm({ pair }: { pair: Pair }) {
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [leverage, setLeverage] = useState(10);
   const [amount, setAmount] = useState('');
+  const base = pair.symbol.split('/')[0];
 
   return (
     <div className="p-4 space-y-4">
@@ -191,7 +193,7 @@ function OrderForm() {
       <div className="space-y-1">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Цена</label>
         <div className="flex items-center bg-secondary rounded-md px-3">
-          <input value="67432.18" readOnly className="flex-1 bg-transparent py-2.5 font-mono-num text-sm outline-none" />
+          <input value={fmtPrice(pair.price)} readOnly className="flex-1 bg-transparent py-2.5 font-mono-num text-sm outline-none" />
           <span className="text-xs text-muted-foreground">USDT</span>
         </div>
       </div>
@@ -205,7 +207,7 @@ function OrderForm() {
             placeholder="0.00"
             className="flex-1 bg-transparent py-2.5 font-mono-num text-sm outline-none placeholder:text-muted-foreground/50"
           />
-          <span className="text-xs text-muted-foreground">BTC</span>
+          <span className="text-xs text-muted-foreground">{base}</span>
         </div>
       </div>
 
@@ -228,7 +230,7 @@ function OrderForm() {
           side === 'buy' ? 'bg-buy' : 'bg-sell'
         }`}
       >
-        {side === 'buy' ? 'Купить BTC' : 'Продать BTC'} · {leverage}x
+        {side === 'buy' ? 'Купить' : 'Продать'} {base} · {leverage}x
       </button>
     </div>
   );
@@ -248,7 +250,8 @@ function Panel({ title, action, children, className = '' }: { title: string; act
 
 const Index = () => {
   const [active, setActive] = useState('trade');
-  const btc = useLivePrice(67432.18);
+  const [selectedPair, setSelectedPair] = useState<Pair>(PAIRS[0]);
+  const livePrice = useLivePrice(selectedPair.price);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -306,7 +309,10 @@ const Index = () => {
             {PAIRS.map((p, i) => (
               <button
                 key={p.symbol}
-                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-secondary transition-colors border-b border-border/50 animate-fade-in"
+                onClick={() => setSelectedPair(p)}
+                className={`w-full flex items-center justify-between px-4 py-2.5 transition-colors border-b border-border/50 animate-fade-in ${
+                  selectedPair.symbol === p.symbol ? 'bg-secondary border-l-2 border-l-primary' : 'hover:bg-secondary/60'
+                }`}
                 style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}
               >
                 <div className="text-left">
@@ -330,14 +336,16 @@ const Index = () => {
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-display text-lg font-bold">BTC/USDT</span>
+                  <span className="font-display text-lg font-bold">{selectedPair.symbol}</span>
                   <span className="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-muted-foreground uppercase">Margin 100x</span>
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className={`font-mono-num text-xl font-semibold ${btc.dir === 'up' ? 'text-buy' : 'text-sell'}`}>
-                    {fmtPrice(btc.price)}
+                  <span className={`font-mono-num text-xl font-semibold ${livePrice.dir === 'up' ? 'text-buy' : 'text-sell'}`}>
+                    {fmtPrice(livePrice.price)}
                   </span>
-                  <span className="text-buy font-mono-num text-sm">+2.41%</span>
+                  <span className={`font-mono-num text-sm ${selectedPair.change >= 0 ? 'text-buy' : 'text-sell'}`}>
+                    {selectedPair.change >= 0 ? '+' : ''}{selectedPair.change.toFixed(2)}%
+                  </span>
                 </div>
               </div>
               <div className="hidden sm:flex items-center gap-1">
@@ -349,7 +357,7 @@ const Index = () => {
               </div>
             </div>
             <div className="h-[280px] sm:h-[340px] grid-bg p-2">
-              <CandleChart />
+              <CandleChart pair={selectedPair} />
             </div>
           </div>
           <Panel title="Стакан ордеров" className="flex-1 min-h-[300px]">
@@ -359,7 +367,7 @@ const Index = () => {
 
         {/* Right: order form */}
         <Panel title="Маржинальный ордер" action={<Icon name="Settings2" size={14} className="text-muted-foreground" />} className="order-3">
-          <OrderForm />
+          <OrderForm pair={selectedPair} />
         </Panel>
       </main>
 
