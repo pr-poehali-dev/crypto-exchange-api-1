@@ -14,6 +14,9 @@ CORS = {
 def get_conn():
     return psycopg2.connect(os.environ['DATABASE_URL'])
 
+def resp(code, data):
+    return {'statusCode': code, 'headers': CORS, 'body': json.dumps(data)}
+
 def get_user_by_token(conn, token: str):
     cur = conn.cursor()
     cur.execute(
@@ -27,12 +30,12 @@ def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
-    token = event.get('headers', {}).get('X-Auth-Token', '')
+    token = (event.get('headers') or {}).get('X-Auth-Token', '')
     conn = get_conn()
     user_id = get_user_by_token(conn, token)
     if not user_id:
         conn.close()
-        return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Не авторизован'})}
+        return resp(401, {'error': 'Не авторизован'})
 
     cur = conn.cursor()
     cur.execute(
@@ -43,4 +46,4 @@ def handler(event: dict, context) -> dict:
     result = [{'id': r[0], 'type': r[1], 'currency': r[2], 'amount': float(r[3]),
                'fee': float(r[4]), 'status': r[5], 'note': r[6], 'created_at': r[7].isoformat()} for r in rows]
     conn.close()
-    return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'transactions': result})}
+    return resp(200, {'transactions': result})

@@ -2,7 +2,6 @@
 import json
 import os
 import psycopg2
-from datetime import datetime
 
 SCHEMA = os.environ['MAIN_DB_SCHEMA']
 
@@ -14,6 +13,9 @@ CORS = {
 
 def get_conn():
     return psycopg2.connect(os.environ['DATABASE_URL'])
+
+def resp(code, data):
+    return {'statusCode': code, 'headers': CORS, 'body': json.dumps(data)}
 
 def get_user_by_token(conn, token: str):
     cur = conn.cursor()
@@ -27,9 +29,10 @@ def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
-    token = event.get('headers', {}).get('X-Auth-Token', '')
+    token = (event.get('headers') or {}).get('X-Auth-Token', '')
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
+    qs = event.get('queryStringParameters') or {}
+    action = qs.get('action', 'list')
     body = {}
     if event.get('body'):
         try:
@@ -41,13 +44,13 @@ def handler(event: dict, context) -> dict:
     user = get_user_by_token(conn, token)
     if not user:
         conn.close()
-        return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Не авторизован'})}
+        return resp(401, {'error': 'Не авторизован'})
 
     user_id, username, is_admin = user
     cur = conn.cursor()
 
-    # GET /deposits — список депозитов пользователя
-    if method == 'GET' and not path.endswith('/all'):
+    # list — список депозитов пользователя
+    if action == 'list':
         cur.execute(
             f"SELECT id, network, address, tx_hash, amount, currency, status, created_at FROM {SCHEMA}.deposits WHERE user_id=%s ORDER BY created_at DESC LIMIT 50",
             (user_id,)
@@ -57,20 +60,20 @@ def handler(event: dict, context) -> dict:
                    'amount': float(r[4]) if r[4] else None, 'currency': r[5],
                    'status': r[6], 'created_at': r[7].isoformat()} for r in rows]
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'deposits': result})}
+        return resp(200, {'deposits': result})
 
-    # POST /deposits — создать заявку на депозит
-    if method == 'POST' and not path.endswith('/confirm'):
+    # create — создать заявку на депозит
+    if action == 'create' and method == 'POST':
         network = body.get('network', '').upper()
         if network not in ('TRON', 'ETH', 'TON'):
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Неверная сеть'})}
+            return resp(400, {'error': 'Неверная сеть'})
 
         cur.execute(f"SELECT address FROM {SCHEMA}.crypto_wallets WHERE user_id=%s AND network=%s", (user_id, network))
         row = cur.fetchone()
         if not row:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Кошелёк не найден, обратитесь в поддержку'})}
+            return resp(400, {'error': 'Кошелёк не найден'})
 
         address = row[0]
         cur.execute(
@@ -80,13 +83,13 @@ def handler(event: dict, context) -> dict:
         dep_id = cur.fetchone()[0]
         conn.commit()
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'id': dep_id, 'address': address, 'network': network})}
+        return resp(200, {'id': dep_id, 'address': address, 'network': network})
 
-    # PUT /deposits/confirm — подтвердить депозит (только admin)
-    if method == 'PUT' and path.endswith('/confirm'):
+    # confirm — подтвердить депозит (только admin)
+    if action == 'confirm' and method == 'PUT':
         if not is_admin:
             conn.close()
-            return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Доступ запрещён'})}
+            return resp(403, {'error': 'Доступ запрещён'})
 
         dep_id = body.get('deposit_id')
         amount = float(body.get('amount', 0))
@@ -94,21 +97,18 @@ def handler(event: dict, context) -> dict:
 
         if not dep_id or amount <= 0:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Укажите deposit_id и amount'})}
+            return resp(400, {'error': 'Укажите deposit_id и amount'})
 
-        cur.execute(
-            f"SELECT user_id, status, currency FROM {SCHEMA}.deposits WHERE id=%s",
-            (dep_id,)
-        )
+        cur.execute(f"SELECT user_id, status, currency FROM {SCHEMA}.deposits WHERE id=%s", (dep_id,))
         dep = cur.fetchone()
         if not dep:
             conn.close()
-            return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Депозит не найден'})}
+            return resp(404, {'error': 'Депозит не найден'})
 
         dep_user_id, status, currency = dep
         if status == 'confirmed':
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Депозит уже подтверждён'})}
+            return resp(400, {'error': 'Депозит уже подтверждён'})
 
         cur.execute(
             f"UPDATE {SCHEMA}.deposits SET status='confirmed', amount=%s, tx_hash=%s, confirmed_at=NOW() WHERE id=%s",
@@ -127,13 +127,13 @@ def handler(event: dict, context) -> dict:
         )
         conn.commit()
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+        return resp(200, {'ok': True})
 
-    # GET /deposits/all — все депозиты (только admin)
-    if method == 'GET' and path.endswith('/all'):
+    # all — все депозиты (только admin)
+    if action == 'all':
         if not is_admin:
             conn.close()
-            return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Доступ запрещён'})}
+            return resp(403, {'error': 'Доступ запрещён'})
 
         cur.execute(
             f"""SELECT d.id, u.username, u.email, d.network, d.address, d.tx_hash,
@@ -146,7 +146,7 @@ def handler(event: dict, context) -> dict:
                    'tx_hash': r[5], 'amount': float(r[6]) if r[6] else None,
                    'currency': r[7], 'status': r[8], 'created_at': r[9].isoformat()} for r in rows]
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'deposits': result})}
+        return resp(200, {'deposits': result})
 
     conn.close()
-    return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
+    return resp(404, {'error': 'Not found'})

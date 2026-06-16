@@ -14,6 +14,9 @@ CORS = {
 def get_conn():
     return psycopg2.connect(os.environ['DATABASE_URL'])
 
+def resp(code, data):
+    return {'statusCode': code, 'headers': CORS, 'body': json.dumps(data)}
+
 def get_admin_user(conn, token: str):
     cur = conn.cursor()
     cur.execute(
@@ -29,9 +32,10 @@ def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
-    token = event.get('headers', {}).get('X-Auth-Token', '')
+    token = (event.get('headers') or {}).get('X-Auth-Token', '')
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
+    qs = event.get('queryStringParameters') or {}
+    action = qs.get('action', '')
     body = {}
     if event.get('body'):
         try:
@@ -43,12 +47,11 @@ def handler(event: dict, context) -> dict:
     admin_id = get_admin_user(conn, token)
     if not admin_id:
         conn.close()
-        return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Доступ запрещён'})}
+        return resp(403, {'error': 'Доступ запрещён'})
 
     cur = conn.cursor()
 
-    # GET /admin/users
-    if method == 'GET' and path.endswith('/users'):
+    if action == 'users':
         cur.execute(
             f"""SELECT u.id, u.email, u.username, u.is_admin, u.is_verified, u.kyc_status, u.created_at, u.last_login,
                        COALESCE(SUM(b.available), 0) as total_usdt
@@ -59,13 +62,13 @@ def handler(event: dict, context) -> dict:
         rows = cur.fetchall()
         result = [{'id': r[0], 'email': r[1], 'username': r[2], 'is_admin': r[3],
                    'is_verified': r[4], 'kyc_status': r[5],
-                   'created_at': r[6].isoformat(), 'last_login': r[7].isoformat() if r[7] else None,
+                   'created_at': r[6].isoformat(),
+                   'last_login': r[7].isoformat() if r[7] else None,
                    'total_usdt': float(r[8])} for r in rows]
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'users': result})}
+        return resp(200, {'users': result})
 
-    # GET /admin/stats
-    if method == 'GET' and path.endswith('/stats'):
+    if action == 'stats':
         cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.users")
         total_users = cur.fetchone()[0]
         cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.deposits WHERE status='pending'")
@@ -75,15 +78,14 @@ def handler(event: dict, context) -> dict:
         cur.execute(f"SELECT COALESCE(SUM(available), 0) FROM {SCHEMA}.user_balances WHERE currency='USDT'")
         total_balance = float(cur.fetchone()[0])
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({
+        return resp(200, {
             'total_users': total_users,
             'pending_deposits': pending_deposits,
             'total_deposited': total_deposited,
             'total_balance': total_balance,
-        })}
+        })
 
-    # PUT /admin/balance — изменить баланс пользователя
-    if method == 'PUT' and path.endswith('/balance'):
+    if action == 'balance' and method == 'PUT':
         target_user_id = body.get('user_id')
         currency = body.get('currency', 'USDT')
         amount = float(body.get('amount', 0))
@@ -91,7 +93,7 @@ def handler(event: dict, context) -> dict:
 
         if not target_user_id:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'user_id обязателен'})}
+            return resp(400, {'error': 'user_id обязателен'})
 
         if operation == 'set':
             cur.execute(
@@ -116,22 +118,20 @@ def handler(event: dict, context) -> dict:
         )
         conn.commit()
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+        return resp(200, {'ok': True})
 
-    # PUT /admin/toggle-admin — выдать/забрать права admin
-    if method == 'PUT' and path.endswith('/toggle-admin'):
+    if action == 'toggle-admin' and method == 'PUT':
         target_user_id = body.get('user_id')
         if not target_user_id:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'user_id обязателен'})}
+            return resp(400, {'error': 'user_id обязателен'})
         cur.execute(f"UPDATE {SCHEMA}.users SET is_admin = NOT is_admin WHERE id=%s RETURNING is_admin", (target_user_id,))
         new_val = cur.fetchone()[0]
         conn.commit()
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'is_admin': new_val})}
+        return resp(200, {'is_admin': new_val})
 
-    # GET /admin/transactions
-    if method == 'GET' and path.endswith('/transactions'):
+    if action == 'transactions':
         cur.execute(
             f"""SELECT t.id, u.username, t.type, t.currency, t.amount, t.fee, t.status, t.note, t.created_at
                 FROM {SCHEMA}.transactions t JOIN {SCHEMA}.users u ON u.id=t.user_id
@@ -142,7 +142,7 @@ def handler(event: dict, context) -> dict:
                    'amount': float(r[4]), 'fee': float(r[5]), 'status': r[6],
                    'note': r[7], 'created_at': r[8].isoformat()} for r in rows]
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'transactions': result})}
+        return resp(200, {'transactions': result})
 
     conn.close()
-    return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
+    return resp(404, {'error': 'Not found'})

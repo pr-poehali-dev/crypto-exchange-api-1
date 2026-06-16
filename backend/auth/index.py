@@ -23,6 +23,9 @@ def hash_password(password: str) -> str:
 def make_token() -> str:
     return secrets.token_hex(32)
 
+def resp(code, data):
+    return {'statusCode': code, 'headers': CORS, 'body': json.dumps(data)}
+
 def get_user_by_token(conn, token: str):
     cur = conn.cursor()
     cur.execute(
@@ -38,8 +41,9 @@ def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
-    path = event.get('path', '/')
     method = event.get('httpMethod', 'GET')
+    qs = event.get('queryStringParameters') or {}
+    action = qs.get('action', '')
     body = {}
     if event.get('body'):
         try:
@@ -47,29 +51,27 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass
 
-    token = event.get('headers', {}).get('X-Auth-Token', '')
-
+    token = (event.get('headers') or {}).get('X-Auth-Token', '')
     conn = get_conn()
 
-    # POST /register
-    if method == 'POST' and path.endswith('/register'):
+    # register
+    if action == 'register' and method == 'POST':
         email = body.get('email', '').strip().lower()
         username = body.get('username', '').strip()
         password = body.get('password', '')
 
         if not email or not username or not password:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Все поля обязательны'})}
-
+            return resp(400, {'error': 'Все поля обязательны'})
         if len(password) < 8:
             conn.close()
-            return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Пароль минимум 8 символов'})}
+            return resp(400, {'error': 'Пароль минимум 8 символов'})
 
         cur = conn.cursor()
         cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE email=%s OR username=%s", (email, username))
         if cur.fetchone():
             conn.close()
-            return {'statusCode': 409, 'headers': CORS, 'body': json.dumps({'error': 'Email или username уже занят'})}
+            return resp(409, {'error': 'Email или username уже занят'})
 
         pw_hash = hash_password(password)
         cur.execute(
@@ -78,7 +80,6 @@ def handler(event: dict, context) -> dict:
         )
         user_id = cur.fetchone()[0]
 
-        # Создаём начальные балансы
         for currency in ['USDT', 'BTC', 'ETH', 'BNB', 'SOL']:
             cur.execute(
                 f"INSERT INTO {SCHEMA}.user_balances (user_id, currency) VALUES (%s, %s) ON CONFLICT DO NOTHING",
@@ -93,15 +94,10 @@ def handler(event: dict, context) -> dict:
         )
         conn.commit()
         conn.close()
+        return resp(200, {'token': token_val, 'user': {'id': user_id, 'email': email, 'username': username, 'is_admin': False}})
 
-        return {
-            'statusCode': 200,
-            'headers': CORS,
-            'body': json.dumps({'token': token_val, 'user': {'id': user_id, 'email': email, 'username': username, 'is_admin': False}})
-        }
-
-    # POST /login
-    if method == 'POST' and path.endswith('/login'):
+    # login
+    if action == 'login' and method == 'POST':
         email = body.get('email', '').strip().lower()
         password = body.get('password', '')
         pw_hash = hash_password(password)
@@ -114,7 +110,7 @@ def handler(event: dict, context) -> dict:
         user = cur.fetchone()
         if not user:
             conn.close()
-            return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Неверный email или пароль'})}
+            return resp(401, {'error': 'Неверный email или пароль'})
 
         user_id, user_email, username, is_admin = user
         cur.execute(f"UPDATE {SCHEMA}.users SET last_login=NOW() WHERE id=%s", (user_id,))
@@ -127,53 +123,38 @@ def handler(event: dict, context) -> dict:
         )
         conn.commit()
         conn.close()
+        return resp(200, {'token': token_val, 'user': {'id': user_id, 'email': user_email, 'username': username, 'is_admin': is_admin}})
 
-        return {
-            'statusCode': 200,
-            'headers': CORS,
-            'body': json.dumps({'token': token_val, 'user': {'id': user_id, 'email': user_email, 'username': username, 'is_admin': is_admin}})
-        }
-
-    # GET /me
-    if method == 'GET' and path.endswith('/me'):
+    # me
+    if action == 'me' and method == 'GET':
         if not token:
             conn.close()
-            return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Не авторизован'})}
+            return resp(401, {'error': 'Не авторизован'})
 
         row = get_user_by_token(conn, token)
         if not row:
             conn.close()
-            return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Сессия истекла'})}
+            return resp(401, {'error': 'Сессия истекла'})
 
         user_id, email, username, is_admin, kyc_status, created_at = row
-
         cur = conn.cursor()
         cur.execute(f"SELECT currency, available, locked FROM {SCHEMA}.user_balances WHERE user_id=%s", (user_id,))
         balances = [{'currency': r[0], 'available': float(r[1]), 'locked': float(r[2])} for r in cur.fetchall()]
         conn.close()
+        return resp(200, {
+            'id': user_id, 'email': email, 'username': username,
+            'is_admin': is_admin, 'kyc_status': kyc_status,
+            'created_at': created_at.isoformat(), 'balances': balances,
+        })
 
-        return {
-            'statusCode': 200,
-            'headers': CORS,
-            'body': json.dumps({
-                'id': user_id,
-                'email': email,
-                'username': username,
-                'is_admin': is_admin,
-                'kyc_status': kyc_status,
-                'created_at': created_at.isoformat(),
-                'balances': balances,
-            })
-        }
-
-    # POST /logout
-    if method == 'POST' and path.endswith('/logout'):
+    # logout
+    if action == 'logout' and method == 'POST':
         if token:
             cur = conn.cursor()
             cur.execute(f"UPDATE {SCHEMA}.auth_sessions SET expires_at=NOW() WHERE token=%s", (token,))
             conn.commit()
         conn.close()
-        return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'ok': True})}
+        return resp(200, {'ok': True})
 
     conn.close()
-    return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
+    return resp(404, {'error': 'Not found'})
