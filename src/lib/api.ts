@@ -58,4 +58,22 @@ export const api = {
     toggleAdmin: (user_id: number) =>
       call('admin', 'PUT', 'toggle-admin', { user_id }),
   },
+  transfer: {
+    send: (to_username: string, currency: string, amount: number) =>
+      call('transfer', 'POST', 'send', { to_username, currency, amount }),
+    check: (username: string) =>
+      call('transfer', 'GET', `check&username=${encodeURIComponent(username)}`),
+  },
+  exchange: {
+    rates: () => call('exchange', 'GET', 'rates'),
+    quote: (from: string, to: string, amount: number) =>
+      call('exchange', 'GET', `quote&from=${from}&to=${to}&amount=${amount}`),
+    swap: (from: string, to: string, amount: number) =>
+      call('exchange', 'POST', 'swap', { from, to, amount }),
+  },
+  fiat: {
+    info: () => call('fiat', 'GET', 'info'),
+    create: (amount_rub: number) => call('fiat', 'POST', 'create', { amount_rub }),
+    list: () => call('fiat', 'GET', 'list'),
+  },
 };

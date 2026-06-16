@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Transfer without auth",
+      "method": "POST",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}

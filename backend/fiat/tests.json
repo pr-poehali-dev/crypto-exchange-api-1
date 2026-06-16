@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Fiat without auth",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}

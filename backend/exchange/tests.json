@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Exchange without auth",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}
