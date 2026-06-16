@@ -1,0 +1,7 @@
+{
+  "transactions": "https://functions.poehali.dev/d5aa30c0-8a00-48d7-adf1-c3515d6fc263",
+  "auth": "https://functions.poehali.dev/5961bd98-e38f-4c6f-8d5c-88eb43dbd321",
+  "deposits": "https://functions.poehali.dev/3f076a88-a549-4a0f-9ccf-f32fc6b5f1fa",
+  "wallets": "https://functions.poehali.dev/b25b4866-c773-489f-a863-05c78d3a1151",
+  "admin": "https://functions.poehali.dev/0714a56e-c8cc-419e-9c9c-57b82504f969"
+}

@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Get deposits without auth",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401
+    }
+  ]
+}

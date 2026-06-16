@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import Icon from '@/components/ui/icon';
+import { useAuth } from '@/context/AuthContext';
 
 interface Pair {
   symbol: string;
@@ -307,6 +309,7 @@ const Index = () => {
   const [active, setActive] = useState('trade');
   const [selectedPair, setSelectedPair] = useState<Pair>(PAIRS[0]);
   const { tickers, connected } = useBinanceTicker();
+  const { user } = useAuth();
 
   // Для RUB/USDT используем симуляцию, для остальных — Binance
   const rubSimulated = useLivePrice(0.0108);
@@ -349,9 +352,27 @@ const Index = () => {
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-buy animate-pulse-live' : 'bg-sell'}`} />
             {connected ? 'Binance · LIVE' : 'Подключение...'}
           </span>
-          <button className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
-            Войти
-          </button>
+          {user ? (
+            <div className="flex items-center gap-2">
+              {user.is_admin && (
+                <Link to="/admin" className="text-xs text-primary border border-primary/30 rounded px-2.5 py-1 hover:bg-primary/10 transition-colors hidden sm:block">
+                  Админ
+                </Link>
+              )}
+              <Link to="/dashboard" className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
+                @{user.username}
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link to="/login" className="px-3 py-1.5 rounded text-sm text-muted-foreground hover:text-foreground transition-colors">
+                Войти
+              </Link>
+              <Link to="/register" className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
+                Регистрация
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 
