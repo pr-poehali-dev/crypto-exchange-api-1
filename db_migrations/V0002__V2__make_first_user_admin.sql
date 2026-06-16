@@ -1,0 +1,1 @@
+UPDATE "t_p38407894_crypto_exchange_api_".users SET is_admin = true WHERE id = 1;
