@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "List wallets without auth",
+      "method": "GET",
+      "path": "/?action=list",
+      "expectedStatus": 401
+    }
+  ]
+}

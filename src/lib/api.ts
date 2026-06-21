@@ -76,4 +76,9 @@ export const api = {
     create: (amount_rub: number) => call('fiat', 'POST', 'create', { amount_rub }),
     list: () => call('fiat', 'GET', 'list'),
   },
+  cryptoWallets: {
+    list: () => call('crypto-wallets', 'GET', 'list'),
+    generate: (network: string) => call('crypto-wallets', 'POST', 'generate', { network }),
+    deposits: () => call('crypto-wallets', 'GET', 'deposits'),
+  },
 };
