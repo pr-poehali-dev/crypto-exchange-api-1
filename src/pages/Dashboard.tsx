@@ -26,6 +26,15 @@ interface FiatInfo {
   card_number: string; card_holder: string; bank_name: string;
   rub_per_usdt: number; min_amount_rub: number; fee_pct: number;
 }
+interface WithdrawalNetwork {
+  currency: string; label: string; chain: string;
+  min: number; fee: number; fee_currency: string; balance: number;
+}
+interface Withdrawal {
+  id: number; network: string; currency: string; amount: number; fee: number;
+  to_address: string; memo?: string; status: string; tx_hash?: string;
+  created_at: string;
+}
 
 const CURRENCIES = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL'];
 
@@ -49,11 +58,12 @@ const TX_LABELS: Record<string, { label: string; icon: string; color: string }> 
   admin_adjustment: { label: 'Корректировка',    icon: 'Settings',        color: 'text-muted-foreground' },
 };
 
-type Tab = 'overview' | 'deposit' | 'transfer' | 'exchange' | 'fiat' | 'history' | 'security';
+type Tab = 'overview' | 'deposit' | 'withdraw' | 'transfer' | 'exchange' | 'fiat' | 'history' | 'security';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',  label: 'Обзор',        icon: 'LayoutDashboard' },
   { id: 'deposit',   label: 'Пополнение',   icon: 'ArrowDownToLine' },
+  { id: 'withdraw',  label: 'Вывод',        icon: 'ArrowUpFromLine' },
   { id: 'fiat',      label: 'Рубли',        icon: 'Banknote' },
   { id: 'transfer',  label: 'Перевод',      icon: 'Send' },
   { id: 'exchange',  label: 'Обмен',        icon: 'ArrowLeftRight' },
@@ -97,6 +107,17 @@ export default function Dashboard() {
   const [fiatOrder, setFiatOrder] = useState<null | { order_id: string; usdt_amount: number; amount_rub: number; fee_rub: number; comment: string }>(null);
   const [fiatLoading, setFiatLoading] = useState(false);
 
+  // ── Withdrawal state ──
+  const [wdNetworks, setWdNetworks] = useState<Record<string, WithdrawalNetwork>>({});
+  const [wdNetwork, setWdNetwork] = useState('USDT_TRC20');
+  const [wdAddress, setWdAddress] = useState('');
+  const [wdMemo, setWdMemo] = useState('');
+  const [wdAmount, setWdAmount] = useState('');
+  const [wdLoading, setWdLoading] = useState(false);
+  const [wdResult, setWdResult] = useState<{ ok: boolean; message: string; tx_hash?: string } | null>(null);
+  const [wdHistory, setWdHistory] = useState<Withdrawal[]>([]);
+  const [wdNetLoaded, setWdNetLoaded] = useState(false);
+
   // ── History ──
   const [txs, setTxs] = useState<Transaction[]>([]);
 
@@ -107,9 +128,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (tab === 'deposit' && !depDepositsLoaded) loadCryptoDeposits();
+    if (tab === 'withdraw' && !wdNetLoaded) loadWdNetworks();
     if (tab === 'history') loadTxs();
     if (tab === 'fiat' && !fiatInfo) loadFiatInfo();
-    // Остановить поллинг при смене таба
     if (tab !== 'deposit' && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -138,6 +159,28 @@ export default function Dashboard() {
   const loadFiatInfo = async () => {
     const { ok, data } = await api.fiat.info();
     if (ok) setFiatInfo(data as FiatInfo);
+  };
+
+  const loadWdNetworks = async () => {
+    const { ok, data } = await api.withdrawal.networks();
+    if (ok) { setWdNetworks((data as { networks: Record<string, WithdrawalNetwork> }).networks); setWdNetLoaded(true); }
+    const { ok: ok2, data: data2 } = await api.withdrawal.list();
+    if (ok2) setWdHistory((data2 as { withdrawals: Withdrawal[] }).withdrawals);
+  };
+
+  const submitWithdrawal = async () => {
+    setWdLoading(true); setWdResult(null);
+    const { ok, data } = await api.withdrawal.create(wdNetwork, wdAddress, parseFloat(wdAmount), wdMemo || undefined);
+    setWdLoading(false);
+    if (ok) {
+      const d = data as { message: string; tx_hash?: string };
+      setWdResult({ ok: true, message: d.message, tx_hash: d.tx_hash });
+      setWdAddress(''); setWdAmount(''); setWdMemo('');
+      refresh();
+      loadWdNetworks();
+    } else {
+      setWdResult({ ok: false, message: (data as { error: string }).error || 'Ошибка' });
+    }
   };
 
   const generateWallet = async (network: string) => {
@@ -243,6 +286,10 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex gap-2 flex-wrap justify-end">
+              <button onClick={() => setTab('withdraw')} className="bg-secondary text-foreground px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 hover:opacity-90">
+                <Icon name="ArrowUpFromLine" size={15} />
+                <span className="hidden sm:block">Вывод</span>
+              </button>
               <button onClick={() => setTab('fiat')} className="bg-secondary text-foreground px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 hover:opacity-90">
                 <Icon name="Banknote" size={15} />
                 <span className="hidden sm:block">₽ Рубли</span>
@@ -297,6 +344,7 @@ export default function Dashboard() {
               <div className="space-y-2">
                 {[
                   { id: 'deposit',  icon: 'ArrowDownToLine', color: 'text-buy',          title: 'Пополнить криптой',    sub: '7 сетей · BTC, ETH, USDT, BNB, SOL, TON' },
+                  { id: 'withdraw', icon: 'ArrowUpFromLine', color: 'text-sell',         title: 'Вывести криптовалюту', sub: 'На внешний кошелёк' },
                   { id: 'fiat',     icon: 'Banknote',        color: 'text-green-400',    title: 'Пополнить рублями',    sub: 'Карта · перевод' },
                   { id: 'transfer', icon: 'Send',            color: 'text-primary',      title: 'Перевести',            sub: 'Другому пользователю' },
                   { id: 'exchange', icon: 'ArrowLeftRight',  color: 'text-cyan-400',     title: 'Быстрый обмен',        sub: 'BTC, ETH, USDT и др.' },
@@ -455,6 +503,163 @@ export default function Dashboard() {
                           {dep.amount ? `+${dep.amount}` : '—'} {dep.currency}
                         </p>
                         <p className="text-[10px] text-muted-foreground">{dep.status === 'confirmed' ? 'Зачислено' : 'Ожидание'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── WITHDRAW ── */}
+        {tab === 'withdraw' && (
+          <div className="space-y-4">
+            <div className="bg-card border border-border rounded-xl p-6 space-y-5">
+              <div>
+                <h3 className="font-semibold text-lg">Вывод криптовалюты</h3>
+                <p className="text-sm text-muted-foreground mt-1">Отправка на внешний кошелёк · средства списываются сразу</p>
+              </div>
+
+              {/* Выбор сети */}
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground">Сеть и монета</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {Object.entries(wdNetworks).map(([netKey, net]) => (
+                    <button key={netKey} onClick={() => { setWdNetwork(netKey); setWdAmount(''); setWdResult(null); }}
+                      className={`flex flex-col gap-1 p-3 rounded-xl border-2 text-left transition-all ${wdNetwork === netKey ? 'border-primary bg-primary/10' : 'border-border bg-secondary hover:border-primary/40'}`}>
+                      <p className="text-xs font-semibold">{net.label}</p>
+                      <p className="text-[11px] text-muted-foreground">Баланс: {net.balance.toLocaleString('en-US', { maximumFractionDigits: 6 })} {net.currency}</p>
+                      <p className="text-[11px] text-muted-foreground">Мин: {net.min} {net.currency}</p>
+                    </button>
+                  ))}
+                  {!wdNetLoaded && (
+                    <div className="col-span-4 py-6 text-center text-muted-foreground">
+                      <Icon name="Loader" size={20} className="mx-auto animate-spin" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {wdNetLoaded && wdNetworks[wdNetwork] && (() => {
+                const net = wdNetworks[wdNetwork];
+                const amt = parseFloat(wdAmount) || 0;
+                const total = amt + net.fee;
+                const canSend = wdAddress && amt >= net.min && net.balance >= total;
+                return (
+                  <div className="space-y-4">
+                    {/* Адрес */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs uppercase tracking-wider text-muted-foreground">Адрес получателя</label>
+                      <input type="text" value={wdAddress} onChange={e => setWdAddress(e.target.value)}
+                        placeholder={`Адрес ${net.label}`}
+                        className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm font-mono outline-none focus:border-primary transition-colors" />
+                    </div>
+
+                    {/* MEMO для TON */}
+                    {wdNetwork === 'TON' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs uppercase tracking-wider text-muted-foreground">MEMO (если требуется биржей)</label>
+                        <input type="text" value={wdMemo} onChange={e => setWdMemo(e.target.value)}
+                          placeholder="Необязательно"
+                          className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-sm outline-none focus:border-primary transition-colors" />
+                      </div>
+                    )}
+
+                    {/* Сумма */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs uppercase tracking-wider text-muted-foreground">Сумма вывода</label>
+                      <div className="flex items-center bg-secondary border border-border rounded-lg px-4 focus-within:border-primary transition-colors">
+                        <input type="number" value={wdAmount} onChange={e => setWdAmount(e.target.value)}
+                          placeholder={`Мин. ${net.min}`}
+                          className="flex-1 bg-transparent py-3 font-mono-num text-sm outline-none" />
+                        <span className="text-muted-foreground text-sm mr-2">{net.currency}</span>
+                        <button onClick={() => setWdAmount(Math.max(0, net.balance - net.fee).toFixed(8).replace(/\.?0+$/, ''))}
+                          className="text-xs text-primary font-semibold">MAX</button>
+                      </div>
+                    </div>
+
+                    {/* Итоговый расчёт */}
+                    {amt > 0 && (
+                      <div className="bg-secondary rounded-xl p-4 space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Сумма вывода</span>
+                          <span className="font-mono-num">{amt} {net.currency}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Комиссия сети</span>
+                          <span className="font-mono-num text-sell">−{net.fee} {net.fee_currency}</span>
+                        </div>
+                        <div className="border-t border-border pt-2 flex justify-between font-semibold">
+                          <span>Спишется с баланса</span>
+                          <span className={`font-mono-num ${net.balance < total ? 'text-sell' : ''}`}>{total.toFixed(8)} {net.currency}</span>
+                        </div>
+                        {net.balance < total && (
+                          <p className="text-xs text-sell">Недостаточно средств. Доступно: {net.balance} {net.currency}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Результат */}
+                    {wdResult && (
+                      <div className={`rounded-xl px-4 py-3 text-sm space-y-1 ${wdResult.ok ? 'bg-buy/10 border border-buy/30' : 'bg-sell/10 border border-sell/30'}`}>
+                        <p className={`font-semibold flex items-center gap-2 ${wdResult.ok ? 'text-buy' : 'text-sell'}`}>
+                          <Icon name={wdResult.ok ? 'CheckCircle' : 'XCircle'} size={16} />
+                          {wdResult.ok ? 'Заявка принята' : 'Ошибка'}
+                        </p>
+                        <p className="text-foreground/80">{wdResult.message}</p>
+                        {wdResult.tx_hash && (
+                          <p className="text-xs text-muted-foreground font-mono break-all">TX: {wdResult.tx_hash}</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="bg-yellow-400/10 border border-yellow-400/20 rounded-lg px-4 py-3 flex gap-2 text-xs text-foreground/80">
+                      <Icon name="AlertTriangle" size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+                      Проверьте адрес перед отправкой. Транзакции в блокчейне необратимы.
+                    </div>
+
+                    <button onClick={submitWithdrawal}
+                      disabled={wdLoading || !canSend}
+                      className="w-full bg-sell text-white py-3 rounded-lg font-semibold hover:opacity-90 disabled:opacity-40 flex items-center justify-center gap-2 transition-opacity">
+                      <Icon name="ArrowUpFromLine" size={16} />
+                      {wdLoading ? 'Отправляем...' : `Вывести ${amt > 0 ? amt + ' ' + net.currency : ''}`}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* История выводов */}
+            {wdHistory.length > 0 && (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-border">
+                  <h3 className="font-semibold text-sm">История выводов</h3>
+                </div>
+                <div className="divide-y divide-border">
+                  {wdHistory.map(w => (
+                    <div key={w.id} className="flex items-center justify-between px-6 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${
+                          w.status === 'completed' ? 'bg-buy' :
+                          w.status === 'rejected'  ? 'bg-sell' :
+                          w.status === 'processing' ? 'bg-primary' : 'bg-yellow-400 animate-pulse'
+                        }`} />
+                        <div>
+                          <p className="text-sm font-medium">{w.network} · {w.currency}</p>
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {w.to_address.slice(0, 12)}...{w.to_address.slice(-6)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono-num text-sm font-semibold text-sell">−{w.amount} {w.currency}</p>
+                        <p className="text-[10px] text-muted-foreground capitalize">
+                          {w.status === 'completed' ? 'Выполнено' :
+                           w.status === 'rejected'  ? 'Отклонено' :
+                           w.status === 'processing' ? 'В обработке' : 'Ожидание'}
+                          {' · '}{new Date(w.created_at).toLocaleDateString('ru')}
+                        </p>
                       </div>
                     </div>
                   ))}

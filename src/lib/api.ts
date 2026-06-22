@@ -81,4 +81,14 @@ export const api = {
     generate: (network: string) => call('crypto-wallets', 'POST', 'generate', { network }),
     deposits: () => call('crypto-wallets', 'GET', 'deposits'),
   },
+  withdrawal: {
+    networks: () => call('withdrawal', 'GET', 'networks'),
+    create: (network: string, address: string, amount: number, memo?: string) =>
+      call('withdrawal', 'POST', 'create', { network, address, amount, memo }),
+    list: () => call('withdrawal', 'GET', 'list'),
+    adminComplete: (withdrawal_id: number, tx_hash: string) =>
+      call('withdrawal', 'PUT', 'admin-complete', { withdrawal_id, tx_hash }),
+    adminReject: (withdrawal_id: number, note: string) =>
+      call('withdrawal', 'PUT', 'admin-reject', { withdrawal_id, note }),
+  },
 };

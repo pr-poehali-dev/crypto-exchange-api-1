@@ -1,4 +1,5 @@
 {
+  "withdrawal": "https://functions.poehali.dev/c5eb2a5c-0391-4196-9ebc-4757ac718051",
   "crypto-wallets": "https://functions.poehali.dev/b389bf23-d7fd-4e7a-8a60-46a9a4f08c5f",
   "transfer": "https://functions.poehali.dev/2d087f0a-d6a9-4287-8f2b-39c61d104a63",
   "fiat": "https://functions.poehali.dev/820d0986-7cdc-42c2-8ab3-a95e8695c5c4",
