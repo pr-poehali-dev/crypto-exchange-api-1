@@ -40,7 +40,8 @@ const CURRENCIES = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL'];
 
 // Все поддерживаемые сети для пополнения
 const DEPOSIT_NETWORKS: Record<string, { label: string; symbol: string; color: string; icon: string; min: number; hint: string }> = {
-  USDT_TRC20: { label: 'USDT TRC-20', symbol: 'USDT', color: 'text-red-400',    icon: 'Zap',         min: 5,      hint: 'Сеть TRON · быстро и дёшево' },
+  USDT_TRC20: { label: 'USDT TRC-20', symbol: 'USDT', color: 'text-red-400',    icon: 'Zap',         min: 1,      hint: 'Сеть TRON · самый дешёвый способ' },
+  TRX:        { label: 'TRON (TRX)',   symbol: 'TRX',  color: 'text-red-500',    icon: 'Zap',         min: 10,     hint: 'Нативная монета сети TRON' },
   USDT_ERC20: { label: 'USDT ERC-20', symbol: 'USDT', color: 'text-blue-400',   icon: 'Layers',      min: 10,     hint: 'Сеть Ethereum · высокие комиссии' },
   BTC:        { label: 'Bitcoin',      symbol: 'BTC',  color: 'text-orange-400', icon: 'Bitcoin',     min: 0.0001, hint: 'Нативная сеть Bitcoin' },
   ETH:        { label: 'Ethereum',     symbol: 'ETH',  color: 'text-indigo-400', icon: 'Layers',      min: 0.001,  hint: 'Нативная сеть Ethereum' },
