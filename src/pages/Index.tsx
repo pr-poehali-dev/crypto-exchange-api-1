@@ -21,12 +21,12 @@ const PAIRS: Pair[] = [
   { symbol: 'AVAX/USDT', base: 'Avalanche', price: 38.27, change: 0, vol: '—' },
   { symbol: 'LINK/USDT', base: 'Chainlink', price: 17.83, change: 0, vol: '—' },
   { symbol: 'ADA/USDT', base: 'Cardano', price: 0.4521, change: 0, vol: '—' },
-  { symbol: 'RUB/USDT', base: 'Рубль', price: 0.0108, change: 0.23, vol: '88M' },
+  { symbol: 'USDT/RUB', base: 'Tether', price: 92.45, change: 0.23, vol: '88M' },
 ];
 
-// Символы Binance (без RUB/USDT — её нет на бирже)
+// Символы Binance (без USDT/RUB — её нет на бирже)
 const BINANCE_SYMBOLS = PAIRS
-  .filter(p => p.symbol !== 'RUB/USDT')
+  .filter(p => p.symbol !== 'USDT/RUB')
   .map(p => p.symbol.replace('/', '').toLowerCase());
 
 interface TickerMap {
