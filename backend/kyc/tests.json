@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "KYC status without auth",
+      "method": "GET",
+      "path": "/?action=status",
+      "expectedStatus": 401
+    }
+  ]
+}

@@ -35,6 +35,19 @@ interface Withdrawal {
   to_address: string; memo?: string; status: string; tx_hash?: string;
   created_at: string;
 }
+interface KycStatus {
+  kyc_level: number;
+  kyc_status: string;
+  submission: {
+    id: number; level: number; status: string;
+    reject_reason: string | null;
+    created_at: string; updated_at: string;
+  } | null;
+}
+interface Notification {
+  id: number; type: string; title: string; body: string;
+  is_read: boolean; created_at: string;
+}
 
 const CURRENCIES = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL'];
 
@@ -59,7 +72,7 @@ const TX_LABELS: Record<string, { label: string; icon: string; color: string }> 
   admin_adjustment: { label: 'Корректировка',    icon: 'Settings',        color: 'text-muted-foreground' },
 };
 
-type Tab = 'overview' | 'deposit' | 'withdraw' | 'transfer' | 'exchange' | 'fiat' | 'history' | 'security';
+type Tab = 'overview' | 'deposit' | 'withdraw' | 'transfer' | 'exchange' | 'fiat' | 'history' | 'kyc' | 'security';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',  label: 'Обзор',        icon: 'LayoutDashboard' },
@@ -69,6 +82,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'transfer',  label: 'Перевод',      icon: 'Send' },
   { id: 'exchange',  label: 'Обмен',        icon: 'ArrowLeftRight' },
   { id: 'history',   label: 'История',      icon: 'History' },
+  { id: 'kyc',       label: 'KYC',          icon: 'BadgeCheck' },
   { id: 'security',  label: 'Безопасность', icon: 'Shield' },
 ];
 
@@ -119,6 +133,15 @@ export default function Dashboard() {
   const [wdHistory, setWdHistory] = useState<Withdrawal[]>([]);
   const [wdNetLoaded, setWdNetLoaded] = useState(false);
 
+  // ── KYC state ──
+  const [kycStatus, setKycStatus] = useState<KycStatus | null>(null);
+  const [kycLoading, setKycLoading] = useState(false);
+  const [kycStep, setKycStep] = useState<'status' | 'form'>('status');
+  const [kycForm, setKycForm] = useState({ full_name: '', birth_date: '', passport_number: '', passport_issued_by: '', passport_issued_date: '' });
+  const [kycDocs, setKycDocs] = useState<{ passport?: string; selfie?: string; address?: string }>({});
+  const [kycMsg, setKycMsg] = useState('');
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
   // ── History ──
   const [txs, setTxs] = useState<Transaction[]>([]);
 
@@ -132,6 +155,7 @@ export default function Dashboard() {
     if (tab === 'withdraw' && !wdNetLoaded) loadWdNetworks();
     if (tab === 'history') loadTxs();
     if (tab === 'fiat' && !fiatInfo) loadFiatInfo();
+    if (tab === 'kyc' && !kycStatus) loadKycStatus();
     if (tab !== 'deposit' && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -160,6 +184,48 @@ export default function Dashboard() {
   const loadFiatInfo = async () => {
     const { ok, data } = await api.fiat.info();
     if (ok) setFiatInfo(data as FiatInfo);
+  };
+
+  const loadKycStatus = async () => {
+    const { ok, data } = await api.kyc.status();
+    if (ok) setKycStatus(data as KycStatus);
+  };
+
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+
+  const handleDocUpload = async (field: 'passport' | 'selfie' | 'address', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const b64 = await fileToBase64(file);
+    setKycDocs(prev => ({ ...prev, [field]: b64 }));
+  };
+
+  const submitKyc = async () => {
+    setKycLoading(true); setKycMsg('');
+    if (!kycDocs.passport || !kycDocs.selfie) {
+      setKycMsg('Загрузите паспорт и селфи');
+      setKycLoading(false); return;
+    }
+    const { ok, data } = await api.kyc.submit({
+      ...kycForm,
+      doc_passport: kycDocs.passport,
+      doc_selfie: kycDocs.selfie,
+      ...(kycDocs.address ? { doc_address: kycDocs.address } : {}),
+    });
+    setKycLoading(false);
+    if (ok) {
+      setKycMsg('✓ Заявка отправлена на проверку');
+      setKycStep('status');
+      loadKycStatus();
+    } else {
+      setKycMsg('✗ ' + ((data as { error: string }).error || 'Ошибка'));
+    }
   };
 
   const loadWdNetworks = async () => {
@@ -344,17 +410,22 @@ export default function Dashboard() {
               <h3 className="font-semibold flex items-center gap-2"><Icon name="Zap" size={16} className="text-primary" /> Быстрые действия</h3>
               <div className="space-y-2">
                 {[
-                  { id: 'deposit',  icon: 'ArrowDownToLine', color: 'text-buy',          title: 'Пополнить криптой',    sub: '7 сетей · BTC, ETH, USDT, BNB, SOL, TON' },
-                  { id: 'withdraw', icon: 'ArrowUpFromLine', color: 'text-sell',         title: 'Вывести криптовалюту', sub: 'На внешний кошелёк' },
-                  { id: 'fiat',     icon: 'Banknote',        color: 'text-green-400',    title: 'Пополнить рублями',    sub: 'Карта · перевод' },
-                  { id: 'transfer', icon: 'Send',            color: 'text-primary',      title: 'Перевести',            sub: 'Другому пользователю' },
-                  { id: 'exchange', icon: 'ArrowLeftRight',  color: 'text-cyan-400',     title: 'Быстрый обмен',        sub: 'BTC, ETH, USDT и др.' },
-                ].map(a => (
-                  <button key={a.id} onClick={() => setTab(a.id as Tab)}
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-secondary rounded-lg hover:bg-muted transition-colors text-sm text-left">
-                    <Icon name={a.icon} size={18} className={a.color} />
-                    <div><p className="font-medium">{a.title}</p><p className="text-xs text-muted-foreground">{a.sub}</p></div>
-                  </button>
+                  { id: 'deposit',  icon: 'ArrowDownToLine', color: 'text-buy',          title: 'Пополнить криптой',    sub: '7 сетей · BTC, ETH, USDT, BNB, SOL, TON', isLink: false },
+                  { id: 'withdraw', icon: 'ArrowUpFromLine', color: 'text-sell',         title: 'Вывести криптовалюту', sub: 'На внешний кошелёк',                        isLink: false },
+                  { id: 'fiat',     icon: 'Banknote',        color: 'text-green-400',    title: 'Пополнить рублями',    sub: 'Карта · перевод',                           isLink: false },
+                  { id: '/trade',   icon: 'TrendingUp',      color: 'text-yellow-400',   title: 'Торговый терминал',    sub: 'BTC/USDT, ETH/USDT и др.',                  isLink: true  },
+                  { id: 'transfer', icon: 'Send',            color: 'text-primary',      title: 'Перевести',            sub: 'Другому пользователю',                      isLink: false },
+                  { id: 'exchange', icon: 'ArrowLeftRight',  color: 'text-cyan-400',     title: 'Быстрый обмен',        sub: 'BTC, ETH, USDT и др.',                      isLink: false },
+                ].map(a => (a.isLink
+                    ? <Link key={a.id} to={a.id} className="w-full flex items-center gap-3 px-4 py-3 bg-secondary rounded-lg hover:bg-muted transition-colors text-sm text-left">
+                        <Icon name={a.icon} size={18} className={a.color} />
+                        <div><p className="font-medium">{a.title}</p><p className="text-xs text-muted-foreground">{a.sub}</p></div>
+                      </Link>
+                    : <button key={a.id} onClick={() => setTab(a.id as Tab)}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-secondary rounded-lg hover:bg-muted transition-colors text-sm text-left">
+                        <Icon name={a.icon} size={18} className={a.color} />
+                        <div><p className="font-medium">{a.title}</p><p className="text-xs text-muted-foreground">{a.sub}</p></div>
+                      </button>
                 ))}
               </div>
             </div>
@@ -883,6 +954,173 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── KYC ── */}
+        {tab === 'kyc' && (
+          <div className="space-y-4">
+            {/* Статус */}
+            <div className="bg-card border border-border rounded-xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="font-semibold text-lg">Верификация личности (KYC)</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Подтвердите личность для снятия лимитов на вывод</p>
+                </div>
+                {kycStatus && (
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                    kycStatus.kyc_status === 'approved' ? 'bg-buy/20 text-buy' :
+                    kycStatus.kyc_status === 'pending'  ? 'bg-yellow-400/20 text-yellow-400' :
+                    kycStatus.kyc_status === 'rejected' ? 'bg-sell/20 text-sell' :
+                    'bg-secondary text-muted-foreground'
+                  }`}>
+                    {kycStatus.kyc_status === 'approved' ? '✓ Подтверждён' :
+                     kycStatus.kyc_status === 'pending'  ? '⏳ На проверке' :
+                     kycStatus.kyc_status === 'rejected' ? '✗ Отклонено' : 'Не верифицирован'}
+                  </span>
+                )}
+              </div>
+
+              {/* Уровни */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                {[
+                  { level: 0, title: 'Level 0', desc: 'Базовый', items: ['Email регистрация', 'Ограниченный доступ'], limit: 'Вывод: 0' },
+                  { level: 1, title: 'Level 1', desc: 'Верификация', items: ['Паспорт РФ', 'Селфи с документом'], limit: 'Вывод: до 600 000 ₽/мес' },
+                  { level: 2, title: 'Level 2', desc: 'Продвинутый', items: ['Подтверждение адреса', 'Видео-интервью'], limit: 'Без ограничений' },
+                ].map(l => (
+                  <div key={l.level} className={`rounded-xl p-4 border-2 ${(kycStatus?.kyc_level || 0) >= l.level ? 'border-primary/50 bg-primary/5' : 'border-border bg-secondary'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-sm">{l.title}</span>
+                      {(kycStatus?.kyc_level || 0) >= l.level
+                        ? <Icon name="CheckCircle" size={16} className="text-buy" />
+                        : <Icon name="Circle" size={16} className="text-muted-foreground" />}
+                    </div>
+                    <p className={`text-xs font-medium mb-2 ${(kycStatus?.kyc_level || 0) >= l.level ? 'text-primary' : 'text-muted-foreground'}`}>{l.desc}</p>
+                    <ul className="space-y-1">
+                      {l.items.map(it => <li key={it} className="text-xs text-muted-foreground flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-muted-foreground/50" />{it}</li>)}
+                    </ul>
+                    <p className="text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border">{l.limit}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Отклонено — причина */}
+              {kycStatus?.submission?.status === 'rejected' && kycStatus.submission.reject_reason && (
+                <div className="bg-sell/10 border border-sell/30 rounded-xl p-4 mb-4 text-sm">
+                  <p className="font-semibold text-sell flex items-center gap-2"><Icon name="XCircle" size={15} /> Заявка отклонена</p>
+                  <p className="text-foreground/80 mt-1">Причина: {kycStatus.submission.reject_reason}</p>
+                  <p className="text-muted-foreground text-xs mt-1">Вы можете подать заявку повторно с исправленными документами.</p>
+                </div>
+              )}
+
+              {/* На проверке */}
+              {kycStatus?.submission?.status === 'pending' && (
+                <div className="bg-yellow-400/10 border border-yellow-400/20 rounded-xl p-4 mb-4 text-sm flex items-start gap-3">
+                  <Icon name="Clock" size={18} className="text-yellow-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-yellow-400">Заявка на рассмотрении</p>
+                    <p className="text-foreground/70 text-xs mt-1">Обычно проверка занимает 1–2 рабочих дня. Мы уведомим вас о результате.</p>
+                    <p className="text-muted-foreground text-xs mt-1">Подана: {new Date(kycStatus.submission.created_at).toLocaleString('ru')}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Одобрено */}
+              {kycStatus?.kyc_status === 'approved' && (
+                <div className="bg-buy/10 border border-buy/30 rounded-xl p-4 text-sm flex items-start gap-3">
+                  <Icon name="BadgeCheck" size={18} className="text-buy shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-buy">Верификация пройдена</p>
+                    <p className="text-foreground/70 text-xs mt-1">Ваш аккаунт полностью верифицирован. Все лимиты сняты.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Кнопка подачи */}
+              {(kycStatus?.kyc_status !== 'approved' && kycStatus?.submission?.status !== 'pending') && (
+                <button onClick={() => setKycStep(kycStep === 'form' ? 'status' : 'form')}
+                  className="mt-4 w-full bg-primary text-background py-3 rounded-lg font-semibold hover:opacity-90 flex items-center justify-center gap-2">
+                  <Icon name="FileText" size={16} />
+                  {kycStep === 'form' ? 'Скрыть форму' : 'Подать заявку на Level 1'}
+                </button>
+              )}
+
+              {/* Загрузка */}
+              {!kycStatus && (
+                <div className="py-6 text-center text-muted-foreground">
+                  <Icon name="Loader" size={20} className="mx-auto animate-spin" />
+                </div>
+              )}
+            </div>
+
+            {/* Форма подачи KYC */}
+            {kycStep === 'form' && kycStatus?.kyc_status !== 'approved' && (
+              <div className="bg-card border border-border rounded-xl p-6 space-y-5">
+                <h4 className="font-semibold">Данные для верификации Level 1</h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {[
+                    { key: 'full_name', label: 'ФИО (как в паспорте)', placeholder: 'Иванов Иван Иванович' },
+                    { key: 'birth_date', label: 'Дата рождения', placeholder: '1990-01-15', type: 'date' },
+                    { key: 'passport_number', label: 'Серия и номер паспорта', placeholder: '4500 123456' },
+                    { key: 'passport_issued_by', label: 'Кем выдан', placeholder: 'ОВД района...' },
+                    { key: 'passport_issued_date', label: 'Дата выдачи', placeholder: '2010-05-20', type: 'date' },
+                  ].map(f => (
+                    <div key={f.key} className="space-y-1">
+                      <label className="text-xs uppercase tracking-wider text-muted-foreground">{f.label}</label>
+                      <input
+                        type={f.type || 'text'}
+                        value={kycForm[f.key as keyof typeof kycForm]}
+                        onChange={e => setKycForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        placeholder={f.placeholder}
+                        className="w-full bg-secondary border border-border rounded-lg px-4 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Документы */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {[
+                    { key: 'passport' as const, label: 'Паспорт (разворот с фото)', required: true, icon: 'FileText' },
+                    { key: 'selfie'   as const, label: 'Селфи с паспортом',          required: true, icon: 'Camera'   },
+                    { key: 'address'  as const, label: 'Подтверждение адреса (ЖКХ)', required: false, icon: 'Home'    },
+                  ].map(d => (
+                    <div key={d.key} className="space-y-2">
+                      <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                        {d.label} {d.required && <span className="text-sell">*</span>}
+                      </label>
+                      <label className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${kycDocs[d.key] ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/30'}`}>
+                        <Icon name={kycDocs[d.key] ? 'CheckCircle' : d.icon} size={24} className={kycDocs[d.key] ? 'text-primary' : 'text-muted-foreground'} />
+                        <span className="text-xs text-muted-foreground text-center">
+                          {kycDocs[d.key] ? 'Файл загружен' : 'Нажмите для загрузки'}
+                        </span>
+                        <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => handleDocUpload(d.key, e)} />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-secondary rounded-xl p-4 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">Требования к документам:</p>
+                  <p>• Фото должны быть чёткими, все данные читаемы</p>
+                  <p>• Форматы: JPG, PNG, PDF. Максимальный размер: 10 МБ</p>
+                  <p>• Данные передаются по зашифрованному каналу и хранятся в соответствии с 152-ФЗ</p>
+                </div>
+
+                {kycMsg && (
+                  <div className={`rounded-xl px-4 py-3 text-sm ${kycMsg.startsWith('✓') ? 'bg-buy/10 text-buy' : 'bg-sell/10 text-sell'}`}>
+                    {kycMsg}
+                  </div>
+                )}
+
+                <button onClick={submitKyc} disabled={kycLoading}
+                  className="w-full bg-primary text-background py-3 rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
+                  <Icon name="Send" size={16} />
+                  {kycLoading ? 'Отправляем...' : 'Отправить заявку на проверку'}
+                </button>
               </div>
             )}
           </div>

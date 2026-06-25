@@ -51,12 +51,43 @@ export const api = {
   },
   admin: {
     stats: () => call('admin', 'GET', 'stats'),
-    users: () => call('admin', 'GET', 'users'),
+    users: (q?: string, page?: number) => call('admin', 'GET', `users${q ? `&q=${encodeURIComponent(q)}` : ''}${page ? `&page=${page}` : ''}`),
+    userDetail: (user_id: number) => call('admin', 'GET', `user-detail&user_id=${user_id}`),
     transactions: () => call('admin', 'GET', 'transactions'),
     setBalance: (user_id: number, currency: string, amount: number, operation: string) =>
       call('admin', 'PUT', 'balance', { user_id, currency, amount, operation }),
-    toggleAdmin: (user_id: number) =>
-      call('admin', 'PUT', 'toggle-admin', { user_id }),
+    toggleAdmin: (user_id: number) => call('admin', 'PUT', 'toggle-admin', { user_id }),
+    freeze: (user_id: number, freeze: boolean, reason?: string) =>
+      call('admin', 'PUT', 'freeze', { user_id, freeze, reason }),
+    setRole: (user_id: number, role: string) => call('admin', 'PUT', 'set-role', { user_id, role }),
+    withdrawals: (status?: string) => call('admin', 'GET', `withdrawals${status ? `&status=${status}` : ''}`),
+    approveWithdrawal: (withdrawal_id: number, tx_hash: string) =>
+      call('admin', 'PUT', 'approve-withdrawal', { withdrawal_id, tx_hash }),
+    rejectWithdrawal: (withdrawal_id: number, note: string) =>
+      call('admin', 'PUT', 'reject-withdrawal', { withdrawal_id, note }),
+    auditLog: (page?: number) => call('admin', 'GET', `audit-log${page ? `&page=${page}` : ''}`),
+    orders: () => call('admin', 'GET', 'orders'),
+    pairs: () => call('admin', 'GET', 'pairs'),
+    updatePair: (pair_id: number, data: Record<string, unknown>) =>
+      call('admin', 'PUT', 'update-pair', { pair_id, ...data }),
+  },
+  orders: {
+    pairs: () => call('orders', 'GET', 'pairs'),
+    orderbook: (symbol: string) => call('orders', 'GET', `orderbook&symbol=${encodeURIComponent(symbol)}`),
+    candles: (symbol: string, interval: string, limit?: number) =>
+      call('orders', 'GET', `candles&symbol=${encodeURIComponent(symbol)}&interval=${interval}${limit ? `&limit=${limit}` : ''}`),
+    trades: (symbol: string) => call('orders', 'GET', `trades&symbol=${encodeURIComponent(symbol)}`),
+    myOrders: (symbol?: string) => call('orders', 'GET', `my-orders${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ''}`),
+    create: (data: { symbol: string; side: string; type: string; qty: number; price?: number; stop_price?: number }) =>
+      call('orders', 'POST', 'create', data),
+    cancel: (order_id: number) => call('orders', 'DELETE', `cancel&order_id=${order_id}`),
+  },
+  kyc: {
+    status: () => call('kyc', 'GET', 'status'),
+    submit: (data: Record<string, string>) => call('kyc', 'POST', 'submit', data),
+    adminList: (status?: string) => call('kyc', 'GET', `admin-list${status ? `&status=${status}` : ''}`),
+    approve: (submission_id: number, note?: string) => call('kyc', 'PUT', 'approve', { submission_id, note }),
+    reject: (submission_id: number, reason: string) => call('kyc', 'PUT', 'reject', { submission_id, reason }),
   },
   transfer: {
     send: (to_username: string, currency: string, amount: number) =>

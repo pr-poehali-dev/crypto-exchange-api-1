@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Get trading pairs",
+      "method": "GET",
+      "path": "/?action=pairs",
+      "expectedStatus": 401
+    }
+  ]
+}

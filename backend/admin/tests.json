@@ -3,7 +3,7 @@
     {
       "name": "Admin without token",
       "method": "GET",
-      "path": "/",
+      "path": "/?action=stats",
       "expectedStatus": 403
     }
   ]

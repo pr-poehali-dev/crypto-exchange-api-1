@@ -359,6 +359,9 @@ const Index = () => {
                   Админ
                 </Link>
               )}
+              <Link to="/trade" className="px-3 py-1.5 rounded border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors hidden sm:flex items-center gap-1.5">
+                <Icon name="TrendingUp" size={14} /> Терминал
+              </Link>
               <Link to="/dashboard" className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
                 @{user.username}
               </Link>
@@ -367,6 +370,9 @@ const Index = () => {
             <div className="flex items-center gap-2">
               <Link to="/login" className="px-3 py-1.5 rounded text-sm text-muted-foreground hover:text-foreground transition-colors">
                 Войти
+              </Link>
+              <Link to="/trade" className="px-3 py-1.5 rounded border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors hidden sm:flex items-center gap-1.5">
+                <Icon name="TrendingUp" size={14} /> Терминал
               </Link>
               <Link to="/register" className="px-4 py-1.5 rounded bg-primary text-background text-sm font-semibold hover:scale-[1.02] transition-transform">
                 Регистрация
