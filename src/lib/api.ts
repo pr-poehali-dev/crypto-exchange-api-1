@@ -122,4 +122,14 @@ export const api = {
     adminReject: (withdrawal_id: number, note: string) =>
       call('withdrawal', 'PUT', 'admin-reject', { withdrawal_id, note }),
   },
+  rates: {
+    usdtRub: async () => {
+      const res = await fetch(URLS['rates'], { headers: { 'Content-Type': 'application/json' } });
+      const text = await res.text();
+      let data: unknown;
+      try { const p = JSON.parse(text); data = typeof p === 'string' ? JSON.parse(p) : p; }
+      catch { data = { error: text }; }
+      return { ok: res.ok, status: res.status, data };
+    },
+  },
 };

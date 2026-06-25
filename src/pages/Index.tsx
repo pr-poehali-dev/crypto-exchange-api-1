@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
 
 interface Pair {
   symbol: string;
@@ -76,6 +77,22 @@ function useBinanceTicker() {
   }, []);
 
   return { tickers, connected };
+}
+
+function useUsdtRubRate() {
+  const [rate, setRate] = useState<{ price: number; change_pct: number; source: string } | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { ok, data } = await api.rates.usdtRub();
+      if (ok) setRate(data as typeof rate);
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return rate;
 }
 
 const NAV = [
@@ -310,13 +327,13 @@ const Index = () => {
   const [selectedPair, setSelectedPair] = useState<Pair>(PAIRS[0]);
   const { tickers, connected } = useBinanceTicker();
   const { user } = useAuth();
-
-  // Для RUB/USDT используем симуляцию, для остальных — Binance
-  const rubSimulated = useLivePrice(0.0108);
+  const usdtRubRate = useUsdtRubRate();
 
   const getPairData = (pair: Pair) => {
-    if (pair.symbol === 'RUB/USDT') {
-      return { price: rubSimulated.price, change: pair.change, vol: pair.vol, dir: rubSimulated.dir };
+    if (pair.symbol === 'USDT/RUB') {
+      const price  = usdtRubRate?.price  ?? pair.price;
+      const change = usdtRubRate?.change_pct ?? pair.change;
+      return { price, change, vol: pair.vol, dir: (change >= 0 ? 'up' : 'down') as 'up' | 'down' };
     }
     return tickers[pair.symbol] ?? { price: pair.price, change: pair.change, vol: pair.vol, dir: 'up' as const };
   };

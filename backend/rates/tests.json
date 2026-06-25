@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get USDT/RUB rate",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
