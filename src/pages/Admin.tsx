@@ -421,14 +421,14 @@ function UserDetailModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {data.balances.map(b => (
+                    {(data.balances ?? []).map(b => (
                       <tr key={b.currency} className="border-b border-border/50">
                         <td className="py-2 font-medium">{b.currency}</td>
                         <td className="py-2 text-right font-mono-num text-buy">{fmt(b.available)}</td>
                         <td className="py-2 text-right font-mono-num text-muted-foreground">{fmt(b.locked)}</td>
                       </tr>
                     ))}
-                    {data.balances.length === 0 && (
+                    {(data.balances ?? []).length === 0 && (
                       <tr><td colSpan={3} className="py-6 text-center text-muted-foreground text-xs">Нет данных</td></tr>
                     )}
                   </tbody>
@@ -440,7 +440,7 @@ function UserDetailModal({
           {/* ТРАНЗАКЦИИ */}
           {dtab === 'transactions' && (
             <div className="space-y-2">
-              {data.transactions.map(tx => (
+              {(data.transactions ?? []).map(tx => (
                 <div key={tx.id} className="bg-secondary rounded-lg p-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div>
@@ -458,7 +458,7 @@ function UserDetailModal({
                   </div>
                 </div>
               ))}
-              {data.transactions.length === 0 && (
+              {(data.transactions ?? []).length === 0 && (
                 <p className="text-center text-muted-foreground text-sm py-6">Нет транзакций</p>
               )}
             </div>
@@ -469,11 +469,11 @@ function UserDetailModal({
             <div className="space-y-2">
               {isSupport ? (
                 <div className="bg-secondary rounded-xl p-4 text-center">
-                  <p className="text-2xl font-bold mb-1">{u.sessions.length}</p>
+                  <p className="text-2xl font-bold mb-1">{(u.sessions ?? []).length}</p>
                   <p className="text-xs text-muted-foreground">активных сессий</p>
                 </div>
               ) : (
-                u.sessions.map(s => (
+                (u.sessions ?? []).map(s => (
                   <div key={s.id} className="bg-secondary rounded-lg p-3 space-y-1">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-mono text-primary">{s.ip}</p>
