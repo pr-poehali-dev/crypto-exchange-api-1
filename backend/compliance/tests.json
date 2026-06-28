@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "AML dashboard without auth",
+      "method": "GET",
+      "path": "/?action=aml-dashboard",
+      "expectedStatus": 403
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "Hot pools without auth",
+      "method": "GET",
+      "path": "/?action=hot-pools",
+      "expectedStatus": 403
+    }
+  ]
+}

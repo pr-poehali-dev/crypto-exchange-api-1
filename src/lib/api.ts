@@ -135,4 +135,43 @@ export const api = {
       return { ok: res.ok, status: res.status, data };
     },
   },
+  hotWallet: {
+    pools: () => call('hot-wallet', 'GET', 'hot-pools'),
+    upsertPool: (data: { network: string; currency: string; address: string; target_pct?: number; note?: string }) =>
+      call('hot-wallet', 'POST', 'upsert-hot-pool', data),
+    sweepLog: (page?: number, user_id?: number) =>
+      call('hot-wallet', 'GET', `sweep-log${page ? `&page=${page}` : ''}${user_id ? `&user_id=${user_id}` : ''}`),
+    completeSweep: (sweep_id: number, tx_hash: string, fee?: number) =>
+      call('hot-wallet', 'PUT', 'complete-sweep', { sweep_id, tx_hash, fee }),
+    withdrawalQueue: (status?: string) =>
+      call('hot-wallet', 'GET', `withdrawal-queue${status ? `&status=${status}` : ''}`),
+    signBatch: (withdrawal_ids: number[], note?: string) =>
+      call('hot-wallet', 'PUT', 'sign-batch', { withdrawal_ids, note }),
+    vaultTransferRequest: (data: { network: string; currency: string; amount: number; note?: string }) =>
+      call('hot-wallet', 'POST', 'vault-transfer-request', data),
+    vaultTransfers: () => call('hot-wallet', 'GET', 'vault-transfers'),
+    signVaultTransfer: (request_id: number, note?: string) =>
+      call('hot-wallet', 'PUT', 'sign-vault-transfer', { request_id, note }),
+    suspendDeposits: (user_id: number, suspend: boolean, reason?: string) =>
+      call('hot-wallet', 'PUT', 'suspend-deposits', { user_id, suspend, reason }),
+    userWalletStatus: (user_id: number) =>
+      call('hot-wallet', 'GET', `user-wallet-status&user_id=${user_id}`),
+  },
+  compliance: {
+    amlDashboard: () => call('compliance', 'GET', 'aml-dashboard'),
+    flagAddress: (data: { address: string; network: string; flag_type: string; risk_score?: number; reason: string; source?: string }) =>
+      call('compliance', 'POST', 'flag-address', data),
+    addressFlags: (flag_type?: string) =>
+      call('compliance', 'GET', `address-flags${flag_type ? `&flag_type=${flag_type}` : ''}`),
+    checkAddress: (address: string, network: string) =>
+      call('compliance', 'GET', `check-address&address=${encodeURIComponent(address)}&network=${network}`),
+    reviewWithdrawal: (withdrawal_id: number, aml_status: string, note?: string, risk_score?: number) =>
+      call('compliance', 'PUT', 'review-withdrawal', { withdrawal_id, aml_status, note, risk_score }),
+    whitelistRequests: (status?: string) =>
+      call('compliance', 'GET', `whitelist-requests${status ? `&status=${status}` : ''}`),
+    approveWhitelist: (whitelist_id: number, approved: boolean, reason?: string) =>
+      call('compliance', 'PUT', 'approve-whitelist', { whitelist_id, approved, reason }),
+    userComplianceStatus: (user_id: number) =>
+      call('compliance', 'GET', `user-compliance-status&user_id=${user_id}`),
+  },
 };

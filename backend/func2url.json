@@ -1,4 +1,6 @@
 {
+  "hot-wallet": "https://functions.poehali.dev/88d43cb6-d8de-4db6-9041-ab0783efcc73",
+  "compliance": "https://functions.poehali.dev/159c98d3-8b1e-497c-9360-e6873766ac76",
   "rates": "https://functions.poehali.dev/e4686766-4356-4277-b807-cdb809a03f96",
   "orders": "https://functions.poehali.dev/300830ed-4ffb-4731-af45-876d2abbd330",
   "kyc": "https://functions.poehali.dev/ddf85fea-d122-4ca9-abe6-6b2f34c0be9d",

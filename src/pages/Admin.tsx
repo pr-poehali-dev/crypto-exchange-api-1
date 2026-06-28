@@ -8,7 +8,7 @@ import Icon from '@/components/ui/icon';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'stats' | 'users' | 'kyc' | 'withdrawals' | 'transactions' | 'orders' | 'pairs' | 'audit' | 'circuit';
+type Tab = 'stats' | 'users' | 'kyc' | 'withdrawals' | 'transactions' | 'orders' | 'pairs' | 'audit' | 'circuit' | 'hot-pool' | 'sweep' | 'aml' | 'vault';
 type UserDetailTab = 'profile' | 'balances' | 'transactions' | 'sessions';
 
 interface Stats {
@@ -69,6 +69,39 @@ interface UserDetail {
   transactions: { id: number; type: string; currency: string; amount: number; fee: number; status: string; note: string; created_at: string }[];
 }
 
+interface HotPool {
+  id: number; network: string; currency: string; address: string;
+  is_active: boolean; balance_onchain: number; target_pct: number;
+  target_amount: number; pending_withdrawals: number; is_low_balance: boolean;
+  last_synced: string | null; note: string | null;
+}
+interface ColdVault {
+  id: number; network: string; currency: string; address: string;
+  multisig: string; balance_onchain: number; is_active: boolean;
+}
+interface SweepEntry {
+  id: number; user_id: number; username: string; network: string; currency: string;
+  from_address: string; to_address: string; amount: number; fee: number;
+  tx_hash: string | null; status: string; confirmations: number;
+  triggered_by: string; created_at: string;
+}
+interface AmlDashboard {
+  blacklisted_addresses: number; watchlisted_addresses: number;
+  blocked_withdrawals: number; flagged_withdrawals: number;
+  pending_aml_review: number; frozen_users: number; pending_whitelist: number;
+  recent_flagged: { id: number; username: string; currency: string; amount: number; to_address: string; aml_status: string; risk_score: number; created_at: string }[];
+}
+interface AddressFlag {
+  id: number; address: string; network: string; flag_type: string;
+  risk_score: number; reason: string; source: string; created_at: string;
+}
+interface VaultRequest {
+  id: number; network: string; currency: string; amount: number; status: string;
+  requested_by: string;
+  sigs: { finance: boolean; compliance: boolean; superadmin: boolean; required: number; collected: number };
+  tx_hash: string | null; note: string | null; created_at: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt = (n: number | null | undefined, dec = 2) =>
@@ -94,10 +127,10 @@ const ROLE_LABELS: Record<string, string> = {
 
 function getAvailableTabs(role: string): Tab[] {
   switch (role) {
-    case 'superadmin': return ['stats', 'users', 'kyc', 'withdrawals', 'transactions', 'orders', 'pairs', 'audit', 'circuit'];
+    case 'superadmin': return ['stats', 'users', 'kyc', 'aml', 'withdrawals', 'hot-pool', 'sweep', 'vault', 'transactions', 'orders', 'pairs', 'audit', 'circuit'];
     case 'admin':      return ['stats', 'users', 'orders', 'pairs', 'audit'];
-    case 'finance':    return ['stats', 'users', 'withdrawals', 'transactions'];
-    case 'compliance': return ['stats', 'users', 'kyc'];
+    case 'finance':    return ['stats', 'users', 'withdrawals', 'hot-pool', 'sweep', 'vault', 'transactions'];
+    case 'compliance': return ['stats', 'users', 'kyc', 'aml', 'sweep'];
     case 'devops':     return ['stats'];
     case 'support':    return ['stats', 'users'];
     default:           return ['stats'];
@@ -108,12 +141,14 @@ const TAB_ICONS: Record<Tab, string> = {
   stats: 'BarChart2', users: 'Users', kyc: 'ShieldCheck', withdrawals: 'ArrowUpFromLine',
   transactions: 'Receipt', orders: 'ListOrdered', pairs: 'CandlestickChart',
   audit: 'ScrollText', circuit: 'AlertTriangle',
+  'hot-pool': 'Flame', sweep: 'ArrowRightLeft', aml: 'ScanSearch', vault: 'Database',
 };
 
 const TAB_LABELS: Record<Tab, string> = {
   stats: 'Статистика', users: 'Пользователи', kyc: 'KYC', withdrawals: 'Выводы',
   transactions: 'Транзакции', orders: 'Ордера', pairs: 'Пары',
   audit: 'Аудит', circuit: 'Circuit Breaker',
+  'hot-pool': 'Hot Pool', sweep: 'Sweep Лог', aml: 'AML', vault: 'Vault Transfer',
 };
 
 function kycBadge(status: string) {
@@ -1366,15 +1401,591 @@ export default function Admin() {
 
         {/* Tab content */}
         <div>
-          {activeTab === 'stats' && <TabStats stats={stats} role={role} />}
-          {activeTab === 'users' && <TabUsers role={role} />}
-          {activeTab === 'kyc' && <TabKyc />}
+          {activeTab === 'stats'     && <TabStats stats={stats} role={role} />}
+          {activeTab === 'users'     && <TabUsers role={role} />}
+          {activeTab === 'kyc'       && <TabKyc />}
           {activeTab === 'withdrawals' && <TabWithdrawals role={role} />}
           {activeTab === 'transactions' && <TabTransactions />}
-          {activeTab === 'orders' && <TabOrders />}
-          {activeTab === 'pairs' && <TabPairs />}
-          {activeTab === 'audit' && <TabAudit />}
-          {activeTab === 'circuit' && <TabCircuit />}
+          {activeTab === 'orders'    && <TabOrders />}
+          {activeTab === 'pairs'     && <TabPairs />}
+          {activeTab === 'audit'     && <TabAudit />}
+          {activeTab === 'circuit'   && <TabCircuit />}
+          {activeTab === 'hot-pool'  && <TabHotPool />}
+          {activeTab === 'sweep'     && <TabSweepLog />}
+          {activeTab === 'aml'       && <TabAml />}
+          {activeTab === 'vault'     && <TabVaultTransfer />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TabHotPool ───────────────────────────────────────────────────────────────
+function TabHotPool() {
+  const [data, setData] = useState<{hot_pools: HotPool[]; cold_vaults: ColdVault[]} | null>(null);
+  const [form, setForm] = useState({ network: '', currency: '', address: '', target_pct: '15', note: '' });
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
+    const { ok, data: d } = await api.hotWallet.pools();
+    if (ok) setData(d as typeof data);
+  };
+
+  const save = async () => {
+    const { ok, data: d } = await api.hotWallet.upsertPool({
+      ...form, target_pct: parseFloat(form.target_pct),
+    });
+    if (ok) { setMsg('Сохранено'); load(); }
+    else setMsg((d as {error:string}).error || 'Ошибка');
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Hot Pools */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Icon name="Flame" size={16} className="text-orange-400" /> Hot Pool кошельки
+          </h3>
+          <button onClick={load} className="text-muted-foreground hover:text-foreground"><Icon name="RefreshCw" size={15} /></button>
+        </div>
+        {!data ? (
+          <div className="py-10 text-center"><Icon name="Loader2" size={20} className="animate-spin text-primary mx-auto" /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-muted-foreground text-xs uppercase">
+                <th className="px-4 py-3 text-left">Сеть</th>
+                <th className="px-4 py-3 text-left">Валюта</th>
+                <th className="px-4 py-3 text-left">Адрес</th>
+                <th className="px-4 py-3 text-right">Баланс On-Chain</th>
+                <th className="px-4 py-3 text-right">Target %</th>
+                <th className="px-4 py-3 text-right">Target USDT</th>
+                <th className="px-4 py-3 text-right">Pending Вывод</th>
+                <th className="px-4 py-3 text-center">Статус</th>
+              </tr></thead>
+              <tbody className="divide-y divide-border">
+                {data.hot_pools.map(p => (
+                  <tr key={p.id} className="hover:bg-secondary/40">
+                    <td className="px-4 py-3 font-medium">{p.network}</td>
+                    <td className="px-4 py-3">{p.currency}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                      {p.address.slice(0,10)}...{p.address.slice(-6)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(p.balance_onchain, 4)}</td>
+                    <td className="px-4 py-3 text-right">{p.target_pct}%</td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(p.target_amount, 2)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-sell">{fmt(p.pending_withdrawals, 4)}</td>
+                    <td className="px-4 py-3 text-center">
+                      {p.is_low_balance
+                        ? <span className="text-xs bg-sell/20 text-sell px-2 py-1 rounded-full">Низкий</span>
+                        : <span className="text-xs bg-buy/20 text-buy px-2 py-1 rounded-full">OK</span>}
+                    </td>
+                  </tr>
+                ))}
+                {data.hot_pools.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Нет настроенных Hot Pool</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Cold Vaults */}
+      {data && data.cold_vaults.length > 0 && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Icon name="Lock" size={16} className="text-primary" /> Cold Vault (Мультиподпись)
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-muted-foreground text-xs uppercase">
+                <th className="px-4 py-3 text-left">Сеть</th>
+                <th className="px-4 py-3 text-left">Адрес</th>
+                <th className="px-4 py-3 text-center">Мультиподпись</th>
+                <th className="px-4 py-3 text-right">Баланс</th>
+              </tr></thead>
+              <tbody className="divide-y divide-border">
+                {data.cold_vaults.map(v => (
+                  <tr key={v.id} className="hover:bg-secondary/40">
+                    <td className="px-4 py-3 font-medium">{v.network} / {v.currency}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{v.address.slice(0,14)}...{v.address.slice(-6)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-xs bg-purple-400/20 text-purple-400 px-2 py-1 rounded-full">{v.multisig}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(v.balance_onchain, 4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Добавить/обновить Hot Pool */}
+      <div className="bg-card border border-border rounded-xl p-6 space-y-4">
+        <h4 className="font-semibold text-sm">Настроить Hot Pool адрес</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {(['network','currency','address'] as const).map(f => (
+            <div key={f} className="space-y-1">
+              <label className="text-xs text-muted-foreground uppercase">{f}</label>
+              <input value={form[f]} onChange={e => setForm(p => ({...p, [f]: e.target.value}))}
+                className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+          ))}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground uppercase">Target %</label>
+            <input type="number" value={form.target_pct} onChange={e => setForm(p => ({...p, target_pct: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+          </div>
+          <div className="space-y-1 col-span-2">
+            <label className="text-xs text-muted-foreground uppercase">Примечание</label>
+            <input value={form.note} onChange={e => setForm(p => ({...p, note: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+          </div>
+        </div>
+        {msg && <p className={`text-sm ${msg === 'Сохранено' ? 'text-buy' : 'text-sell'}`}>{msg}</p>}
+        <button onClick={save}
+          className="bg-primary text-background px-6 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90">
+          Сохранить
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── TabSweepLog ──────────────────────────────────────────────────────────────
+function TabSweepLog() {
+  const [sweeps, setSweeps] = useState<SweepEntry[]>([]);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { load(); }, [page]);
+
+  const load = async () => {
+    setLoading(true);
+    const { ok, data } = await api.hotWallet.sweepLog(page);
+    if (ok) setSweeps((data as {sweeps: SweepEntry[]}).sweeps ?? []);
+    setLoading(false);
+  };
+
+  const STATUS_COLOR: Record<string, string> = {
+    completed: 'text-buy bg-buy/10',
+    pending:   'text-yellow-400 bg-yellow-400/10',
+    failed:    'text-sell bg-sell/10',
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Icon name="ArrowRightLeft" size={16} className="text-primary" />
+          Sweep: Deposit Address → Hot Pool
+        </h3>
+        <button onClick={load} className="text-muted-foreground hover:text-foreground"><Icon name="RefreshCw" size={15} /></button>
+      </div>
+      {loading ? (
+        <div className="py-10 text-center"><Icon name="Loader2" size={20} className="animate-spin text-primary mx-auto" /></div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border text-muted-foreground text-xs uppercase">
+              <th className="px-4 py-3 text-left">ID</th>
+              <th className="px-4 py-3 text-left">Пользователь</th>
+              <th className="px-4 py-3 text-left">Сеть</th>
+              <th className="px-4 py-3 text-left">От</th>
+              <th className="px-4 py-3 text-left">Куда (Hot Pool)</th>
+              <th className="px-4 py-3 text-right">Сумма</th>
+              <th className="px-4 py-3 text-right">Комиссия</th>
+              <th className="px-4 py-3 text-center">Статус</th>
+              <th className="px-4 py-3 text-left">TX Hash</th>
+              <th className="px-4 py-3 text-left">Дата</th>
+            </tr></thead>
+            <tbody className="divide-y divide-border">
+              {sweeps.map(s => (
+                <tr key={s.id} className="hover:bg-secondary/40">
+                  <td className="px-4 py-2.5 text-muted-foreground">#{s.id}</td>
+                  <td className="px-4 py-2.5 font-medium">{s.username}</td>
+                  <td className="px-4 py-2.5">{s.network} · {s.currency}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{s.from_address.slice(0,10)}...</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-primary">{s.to_address.slice(0,10)}...</td>
+                  <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmt(s.amount, 6)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-muted-foreground text-xs">{fmt(s.fee, 6)}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLOR[s.status] ?? 'text-muted-foreground bg-secondary'}`}>
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                    {s.tx_hash ? s.tx_hash.slice(0,10) + '...' : '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{fmtDate(s.created_at)}</td>
+                </tr>
+              ))}
+              {sweeps.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">Нет записей</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="px-6 py-3 border-t border-border flex justify-between items-center">
+        <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+          className="px-3 py-1.5 bg-secondary rounded-lg text-sm hover:bg-secondary/70 disabled:opacity-40">
+          <Icon name="ChevronLeft" size={15} />
+        </button>
+        <span className="text-xs text-muted-foreground">Страница {page}</span>
+        <button onClick={() => setPage(p => p+1)} disabled={sweeps.length < 100}
+          className="px-3 py-1.5 bg-secondary rounded-lg text-sm hover:bg-secondary/70 disabled:opacity-40">
+          <Icon name="ChevronRight" size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── TabAml ───────────────────────────────────────────────────────────────────
+function TabAml() {
+  const [dashboard, setDashboard] = useState<AmlDashboard | null>(null);
+  const [flags, setFlags] = useState<AddressFlag[]>([]);
+  const [flagFilter, setFlagFilter] = useState('blacklist');
+  const [form, setForm] = useState({ address: '', network: 'ETH', flag_type: 'blacklist', risk_score: '80', reason: '', source: 'manual' });
+  const [msg, setMsg] = useState('');
+  const [wdId, setWdId] = useState('');
+  const [wdAml, setWdAml] = useState('blocked');
+  const [wdNote, setWdNote] = useState('');
+
+  useEffect(() => { loadDashboard(); loadFlags(); }, []);
+  useEffect(() => { loadFlags(); }, [flagFilter]);
+
+  const loadDashboard = async () => {
+    const { ok, data } = await api.compliance.amlDashboard();
+    if (ok) setDashboard(data as AmlDashboard);
+  };
+  const loadFlags = async () => {
+    const { ok, data } = await api.compliance.addressFlags(flagFilter);
+    if (ok) setFlags((data as {flags: AddressFlag[]}).flags ?? []);
+  };
+  const flagAddress = async () => {
+    const { ok, data } = await api.compliance.flagAddress({...form, risk_score: parseFloat(form.risk_score)});
+    if (ok) { setMsg('Флаг установлен'); loadFlags(); loadDashboard(); }
+    else setMsg((data as {error:string}).error || 'Ошибка');
+  };
+  const reviewWd = async () => {
+    if (!wdId) return;
+    const { ok } = await api.compliance.reviewWithdrawal(parseInt(wdId), wdAml, wdNote);
+    if (ok) { setMsg(`Вывод #${wdId} → ${wdAml}`); setWdId(''); setWdNote(''); }
+  };
+
+  const DASH_CARDS = dashboard ? [
+    { label: 'Blacklist адресов', value: dashboard.blacklisted_addresses, color: 'text-sell', icon: 'Ban' },
+    { label: 'Watchlist',         value: dashboard.watchlisted_addresses, color: 'text-yellow-400', icon: 'Eye' },
+    { label: 'Блокир. выводов',   value: dashboard.blocked_withdrawals,   color: 'text-sell', icon: 'Lock' },
+    { label: 'Flagged выводов',   value: dashboard.flagged_withdrawals,   color: 'text-orange-400', icon: 'Flag' },
+    { label: 'Ожид. AML-проверки',value: dashboard.pending_aml_review,   color: 'text-yellow-400', icon: 'Clock' },
+    { label: 'Заморожено аккаунтов', value: dashboard.frozen_users,      color: 'text-sell', icon: 'UserX' },
+    { label: 'Whitelist на проверке', value: dashboard.pending_whitelist, color: 'text-primary', icon: 'CheckSquare' },
+  ] : [];
+
+  return (
+    <div className="space-y-6">
+      {/* Anti-tipping-off banner */}
+      <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl px-5 py-4 flex items-start gap-3">
+        <Icon name="AlertTriangle" size={18} className="text-yellow-400 shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-semibold text-yellow-400">Anti-Tipping-Off Policy</p>
+          <p className="text-foreground/70 mt-1">Информация о AML-расследованиях конфиденциальна. Не сообщайте пользователям причины блокировки, связанные с подозрением в отмывании.</p>
+        </div>
+      </div>
+
+      {/* Dashboard карточки */}
+      {dashboard && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {DASH_CARDS.map(c => (
+            <div key={c.label} className="bg-card border border-border rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Icon name={c.icon} size={14} className={c.color} />
+                <span className="text-xs text-muted-foreground">{c.label}</span>
+              </div>
+              <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Последние flagged выводы */}
+      {dashboard && dashboard.recent_flagged.length > 0 && (
+        <div className="bg-card border border-sell/30 rounded-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-border">
+            <h4 className="font-semibold text-sell flex items-center gap-2"><Icon name="AlertOctagon" size={15} /> Последние риск-транзакции</h4>
+          </div>
+          <div className="divide-y divide-border">
+            {dashboard.recent_flagged.map(w => (
+              <div key={w.id} className="px-6 py-3 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium">{w.username}</span>
+                  <span className="text-muted-foreground ml-2">{w.currency} · {w.to_address}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-mono font-semibold">{fmt(w.amount, 4)}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${w.aml_status === 'blocked' ? 'bg-sell/20 text-sell' : 'bg-orange-400/20 text-orange-400'}`}>
+                    {w.aml_status} · risk {w.risk_score}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Установить флаг на адрес */}
+      <div className="bg-card border border-border rounded-xl p-6 space-y-4">
+        <h4 className="font-semibold flex items-center gap-2"><Icon name="Ban" size={15} className="text-sell" /> Установить AML-флаг на адрес</h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="space-y-1 col-span-2">
+            <label className="text-xs text-muted-foreground uppercase">Адрес</label>
+            <input value={form.address} onChange={e => setForm(p=>({...p, address: e.target.value}))}
+              placeholder="0x... или T..." className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm font-mono outline-none focus:border-primary" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground uppercase">Сеть</label>
+            <select value={form.network} onChange={e => setForm(p=>({...p, network: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary">
+              {['ETH','TRON','BTC','BSC','SOL'].map(n => <option key={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground uppercase">Тип флага</label>
+            <select value={form.flag_type} onChange={e => setForm(p=>({...p, flag_type: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="blacklist">Blacklist</option>
+              <option value="watchlist">Watchlist</option>
+              <option value="whitelist">Whitelist</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground uppercase">Risk Score (0-100)</label>
+            <input type="number" min={0} max={100} value={form.risk_score}
+              onChange={e => setForm(p=>({...p, risk_score: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground uppercase">Источник</label>
+            <select value={form.source} onChange={e => setForm(p=>({...p, source: e.target.value}))}
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary">
+              {['manual','chainalysis','elliptic','ofac','fatf','rosfinmonitoring'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1 col-span-2 sm:col-span-3">
+            <label className="text-xs text-muted-foreground uppercase">Причина (конфиденциально)</label>
+            <input value={form.reason} onChange={e => setForm(p=>({...p, reason: e.target.value}))}
+              placeholder="Связь с миксером / санкционным адресом / etc."
+              className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+          </div>
+        </div>
+        {msg && <p className={`text-sm ${msg.includes('Ошибка') ? 'text-sell' : 'text-buy'}`}>{msg}</p>}
+        <button onClick={flagAddress}
+          className="bg-sell text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90">
+          Установить флаг
+        </button>
+      </div>
+
+      {/* AML Review вывода */}
+      <div className="bg-card border border-border rounded-xl p-6 space-y-4">
+        <h4 className="font-semibold flex items-center gap-2"><Icon name="ScanSearch" size={15} className="text-primary" /> AML-проверка вывода</h4>
+        <p className="text-xs text-muted-foreground">Finance не может подписать вывод со статусом <span className="text-sell font-medium">blocked</span>. Это принудительный SoD-барьер.</p>
+        <div className="flex gap-3 flex-wrap">
+          <input value={wdId} onChange={e => setWdId(e.target.value)} placeholder="ID вывода"
+            className="bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary w-32" />
+          <select value={wdAml} onChange={e => setWdAml(e.target.value)}
+            className="bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary">
+            <option value="clear">Clear</option>
+            <option value="flagged">Flagged</option>
+            <option value="blocked">Blocked</option>
+          </select>
+          <input value={wdNote} onChange={e => setWdNote(e.target.value)} placeholder="Примечание (конфиденциально)"
+            className="bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary flex-1 min-w-48" />
+          <button onClick={reviewWd}
+            className="bg-primary text-background px-5 py-2 rounded-lg text-sm font-semibold hover:opacity-90">
+            Применить
+          </button>
+        </div>
+      </div>
+
+      {/* Список флагов */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-3">
+          <h4 className="font-semibold">Список AML флагов</h4>
+          <div className="flex gap-1 ml-auto">
+            {['blacklist','watchlist','whitelist'].map(f => (
+              <button key={f} onClick={() => setFlagFilter(f)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium ${flagFilter === f ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border text-muted-foreground text-xs uppercase">
+              <th className="px-4 py-3 text-left">Адрес</th>
+              <th className="px-4 py-3 text-left">Сеть</th>
+              <th className="px-4 py-3 text-right">Risk Score</th>
+              <th className="px-4 py-3 text-left">Источник</th>
+              <th className="px-4 py-3 text-left">Дата</th>
+            </tr></thead>
+            <tbody className="divide-y divide-border">
+              {flags.map(f => (
+                <tr key={f.id} className="hover:bg-secondary/40">
+                  <td className="px-4 py-2.5 font-mono text-xs">{f.address.slice(0,16)}...{f.address.slice(-6)}</td>
+                  <td className="px-4 py-2.5">{f.network}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <span className={`font-mono font-semibold ${f.risk_score >= 70 ? 'text-sell' : f.risk_score >= 40 ? 'text-yellow-400' : 'text-buy'}`}>
+                      {f.risk_score}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{f.source}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{fmtDate(f.created_at)}</td>
+                </tr>
+              ))}
+              {flags.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Нет записей</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TabVaultTransfer ─────────────────────────────────────────────────────────
+function TabVaultTransfer() {
+  const [requests, setRequests] = useState<VaultRequest[]>([]);
+  const [form, setForm] = useState({ network: 'ETH', currency: 'ETH', amount: '', note: '' });
+  const [msg, setMsg] = useState('');
+  const { user } = useAuth();
+  const role = (user as unknown as {role: string})?.role ?? 'user';
+
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
+    const { ok, data } = await api.hotWallet.vaultTransfers();
+    if (ok) setRequests((data as {requests: VaultRequest[]}).requests ?? []);
+  };
+
+  const createRequest = async () => {
+    const { ok, data } = await api.hotWallet.vaultTransferRequest({
+      ...form, amount: parseFloat(form.amount),
+    });
+    if (ok) { setMsg((data as {message: string}).message || 'Запрос создан'); load(); }
+    else setMsg((data as {error: string}).error || 'Ошибка');
+  };
+
+  const sign = async (request_id: number) => {
+    const { ok } = await api.hotWallet.signVaultTransfer(request_id, 'approved');
+    if (ok) { setMsg('Подпись добавлена'); load(); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl px-5 py-4 flex gap-3">
+        <Icon name="ShieldAlert" size={18} className="text-yellow-400 shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-semibold text-yellow-400">Мультиподпись Cold Vault → Hot Pool</p>
+          <p className="text-foreground/70 mt-1">Требуется {role === 'superadmin' ? '2' : '...'} подписи: Finance + Superadmin или Compliance. Все операции записываются в Audit Log.</p>
+        </div>
+      </div>
+
+      {/* Создать запрос (только Finance) */}
+      {(role === 'finance' || role === 'superadmin') && (
+        <div className="bg-card border border-border rounded-xl p-6 space-y-4">
+          <h4 className="font-semibold">Запрос на подпитку Hot Pool из Cold Vault</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(['network','currency'] as const).map(f => (
+              <div key={f} className="space-y-1">
+                <label className="text-xs text-muted-foreground uppercase">{f}</label>
+                <input value={form[f]} onChange={e => setForm(p=>({...p, [f]: e.target.value}))}
+                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+              </div>
+            ))}
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground uppercase">Сумма</label>
+              <input type="number" value={form.amount} onChange={e => setForm(p=>({...p, amount: e.target.value}))}
+                className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground uppercase">Причина</label>
+              <input value={form.note} onChange={e => setForm(p=>({...p, note: e.target.value}))}
+                className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+          </div>
+          {msg && <p className={`text-sm ${msg.includes('Ошибка') ? 'text-sell' : 'text-buy'}`}>{msg}</p>}
+          <button onClick={createRequest}
+            className="bg-primary text-background px-6 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90">
+            Создать запрос
+          </button>
+        </div>
+      )}
+
+      {/* Список запросов */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <h4 className="font-semibold flex items-center gap-2"><Icon name="Database" size={15} className="text-primary" /> История переводов</h4>
+          <button onClick={load} className="text-muted-foreground hover:text-foreground"><Icon name="RefreshCw" size={15} /></button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-border text-muted-foreground text-xs uppercase">
+              <th className="px-4 py-3 text-left">ID</th>
+              <th className="px-4 py-3 text-left">Сеть</th>
+              <th className="px-4 py-3 text-right">Сумма</th>
+              <th className="px-4 py-3 text-center">Подписи</th>
+              <th className="px-4 py-3 text-center">Статус</th>
+              <th className="px-4 py-3 text-left">Инициатор</th>
+              <th className="px-4 py-3 text-left">Дата</th>
+              <th className="px-4 py-3"></th>
+            </tr></thead>
+            <tbody className="divide-y divide-border">
+              {requests.map(r => (
+                <tr key={r.id} className="hover:bg-secondary/40">
+                  <td className="px-4 py-3 text-muted-foreground">#{r.id}</td>
+                  <td className="px-4 py-3">{r.network} / {r.currency}</td>
+                  <td className="px-4 py-3 text-right font-mono font-semibold">{fmt(r.amount, 4)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <span className={`w-2.5 h-2.5 rounded-full ${r.sigs.finance ? 'bg-buy' : 'bg-muted-foreground/30'}`} title="Finance" />
+                      <span className={`w-2.5 h-2.5 rounded-full ${r.sigs.compliance ? 'bg-blue-400' : 'bg-muted-foreground/30'}`} title="Compliance" />
+                      <span className={`w-2.5 h-2.5 rounded-full ${r.sigs.superadmin ? 'bg-purple-400' : 'bg-muted-foreground/30'}`} title="Superadmin" />
+                      <span className="text-xs text-muted-foreground ml-1">{r.sigs.collected}/{r.sigs.required}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      r.status === 'approved' ? 'bg-buy/20 text-buy' :
+                      r.status === 'completed' ? 'bg-primary/20 text-primary' :
+                      r.status === 'rejected' ? 'bg-sell/20 text-sell' :
+                      'bg-yellow-400/20 text-yellow-400'
+                    }`}>{r.status}</span>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{r.requested_by}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(r.created_at)}</td>
+                  <td className="px-4 py-3">
+                    {r.status === 'pending' && (role === 'superadmin' || role === 'compliance') && !r.sigs[role as keyof typeof r.sigs] && (
+                      <button onClick={() => sign(r.id)}
+                        className="text-xs bg-primary/20 text-primary px-3 py-1.5 rounded-lg hover:bg-primary/30 font-medium">
+                        Подписать
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {requests.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Нет запросов</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
