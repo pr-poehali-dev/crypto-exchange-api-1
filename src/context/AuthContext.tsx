@@ -1,18 +1,24 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from '@/lib/api';
+import type { UserRole } from '@/lib/roles';
 
-interface Balance {
+// Типы и утилиты ролей — импортируй напрямую из @/lib/roles
+export type { UserRole };
+
+export interface Balance {
   currency: string;
   available: number;
   locked: number;
 }
 
-interface User {
+export interface User {
   id: number;
   email: string;
   username: string;
   is_admin: boolean;
+  role: UserRole;
   kyc_status: string;
+  kyc_level: number;
   created_at: string;
   balances: Balance[];
 }

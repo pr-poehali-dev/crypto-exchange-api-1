@@ -70,6 +70,9 @@ export const api = {
     pairs: () => call('admin', 'GET', 'pairs'),
     updatePair: (pair_id: number, data: Record<string, unknown>) =>
       call('admin', 'PUT', 'update-pair', { pair_id, ...data }),
+    circuitBreakerStatus: () => call('admin', 'GET', 'circuit-breaker'),
+    circuitBreaker: (action: 'halt' | 'resume', scope: string, reason: string) =>
+      call('admin', 'PUT', 'circuit-breaker', { action, scope, reason }),
   },
   orders: {
     pairs: () => call('orders', 'GET', 'pairs'),

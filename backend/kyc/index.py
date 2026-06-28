@@ -17,14 +17,27 @@ def get_conn():
 def resp(code, data):
     return {'statusCode': code, 'headers': CORS, 'body': json.dumps(data, default=str)}
 
+ROLE_LEVELS = {
+    'user': 0, 'support': 1, 'compliance': 2,
+    'finance': 3, 'devops': 4, 'admin': 5, 'superadmin': 6,
+}
+
 def get_user(conn, token):
     cur = conn.cursor()
     cur.execute(
-        f"SELECT u.id, u.kyc_status, u.kyc_level, u.role FROM {SCHEMA}.auth_sessions s "
+        f"SELECT u.id, u.kyc_status, u.kyc_level, u.role, u.is_admin FROM {SCHEMA}.auth_sessions s "
         f"JOIN {SCHEMA}.users u ON u.id=s.user_id WHERE s.token=%s AND s.expires_at>NOW()",
         (token,)
     )
     return cur.fetchone()
+
+def has_role(role: str | None, is_admin: bool, min_role: str) -> bool:
+    """Проверяет что эффективная роль >= min_role."""
+    eff = role or 'user'
+    # legacy fallback
+    if (eff == 'user' or not eff) and is_admin:
+        eff = 'admin'
+    return ROLE_LEVELS.get(eff, 0) >= ROLE_LEVELS.get(min_role, 0)
 
 def s3_client():
     return boto3.client('s3',
@@ -79,9 +92,10 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return resp(401, {'error': 'Не авторизован'})
 
-    user_id, kyc_status, kyc_level, role = user
-    cur = conn.cursor()
-    is_admin = role in ('admin', 'superadmin', 'compliance')
+    user_id, kyc_status, kyc_level, role, is_admin_flag = user
+    cur      = conn.cursor()
+    # Compliance — единственная роль которая может работать с документами KYC
+    is_compliance = has_role(role, is_admin_flag, 'compliance')
 
     # GET ?action=status — статус верификации пользователя
     if action == 'status' and method == 'GET':
@@ -165,8 +179,8 @@ def handler(event: dict, context) -> dict:
 
     # ── Админ-действия ────────────────────────────────────────────────────────
 
-    # GET ?action=admin-list — список заявок для модерации
-    if action == 'admin-list' and method == 'GET' and is_admin:
+    # GET ?action=admin-list — список заявок для модерации (только Compliance+)
+    if action == 'admin-list' and method == 'GET' and is_compliance:
         status_filter = qs.get('status', 'pending')
         cur.execute(
             f"""SELECT k.id, k.user_id, u.email, u.username, k.level, k.status,
@@ -190,8 +204,8 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return resp(200, {'submissions': result, 'total': len(result)})
 
-    # PUT ?action=approve — одобрить KYC
-    if action == 'approve' and method == 'PUT' and is_admin:
+    # PUT ?action=approve — одобрить KYC (только Compliance+)
+    if action == 'approve' and method == 'PUT' and is_compliance:
         sub_id  = body.get('submission_id')
         note    = body.get('note', '')
         cur.execute(
@@ -222,8 +236,8 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return resp(200, {'ok': True})
 
-    # PUT ?action=reject — отклонить KYC
-    if action == 'reject' and method == 'PUT' and is_admin:
+    # PUT ?action=reject — отклонить KYC (только Compliance+)
+    if action == 'reject' and method == 'PUT' and is_compliance:
         sub_id = body.get('submission_id')
         reason = body.get('reason', 'Документы не соответствуют требованиям')
         cur.execute(

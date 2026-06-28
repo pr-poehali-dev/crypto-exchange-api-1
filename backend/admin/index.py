@@ -151,7 +151,12 @@ def handler(event: dict, context) -> dict:
         if not admin:
             conn.close()
             return resp(403, {'error': 'Нет доступа'})
-        target_id = int(qs.get('user_id', 0))
+        target_id   = int(qs.get('user_id', 0))
+        admin_role  = admin['role']
+        is_finance  = ROLE_LEVELS.get(admin_role, 0) >= ROLE_LEVELS['finance']
+        is_comp     = ROLE_LEVELS.get(admin_role, 0) >= ROLE_LEVELS['compliance']
+        is_adm      = ROLE_LEVELS.get(admin_role, 0) >= ROLE_LEVELS['admin']
+
         cur.execute(
             f"SELECT id, email, username, role, kyc_status, kyc_level, is_frozen, freeze_reason, "
             f"full_name, birth_date, created_at, last_login FROM {SCHEMA}.users WHERE id=%s",
@@ -161,32 +166,70 @@ def handler(event: dict, context) -> dict:
         if not u:
             conn.close()
             return resp(404, {'error': 'Пользователь не найден'})
-        # Балансы
+
+        # SoD: Support видит email частично скрытым, без полного имени и паспортных данных
+        raw_email = u[1]
+        if not is_comp:
+            parts = raw_email.split('@')
+            masked_email = parts[0][:2] + '***@' + parts[1] if len(parts) == 2 else '***'
+        else:
+            masked_email = raw_email  # Compliance видит полный email
+
+        # Балансы: Support и выше видят, но только Finance+ видит locked (детали ордеров)
         cur.execute(f"SELECT currency, available, locked FROM {SCHEMA}.user_balances WHERE user_id=%s", (target_id,))
-        balances = [{'currency': r[0], 'available': float(r[1]), 'locked': float(r[2])} for r in cur.fetchall()]
-        # Последние транзакции
+        balances = [{
+            'currency': r[0],
+            'available': float(r[1]),
+            'locked': float(r[2]) if is_finance else None,
+        } for r in cur.fetchall()]
+
+        # Транзакции: Support видит только тип/статус/валюту без сумм (финансовая приватность)
         cur.execute(
-            f"SELECT type, currency, amount, fee, status, note, created_at FROM {SCHEMA}.transactions WHERE user_id=%s ORDER BY created_at DESC LIMIT 20",
+            f"SELECT type, currency, amount, fee, status, note, created_at FROM {SCHEMA}.transactions "
+            f"WHERE user_id=%s ORDER BY created_at DESC LIMIT 20",
             (target_id,)
         )
-        txs = [{'type': r[0], 'currency': r[1], 'amount': float(r[2]), 'fee': float(r[3] or 0),
-                'status': r[4], 'note': r[5], 'created_at': r[6].isoformat()} for r in cur.fetchall()]
-        # Сессии
+        txs = [{
+            'type': r[0], 'currency': r[1],
+            'amount': float(r[2]) if is_finance else None,
+            'fee':    float(r[3] or 0) if is_finance else None,
+            'status': r[4],
+            'note':   r[5] if is_comp else None,  # Note может содержать AML-инфо
+            'created_at': r[6].isoformat(),
+        } for r in cur.fetchall()]
+
+        # Сессии: Support видит только последнюю; полный IP-лог — Compliance+
         cur.execute(
-            f"SELECT ip_address, user_agent, created_at, last_seen FROM {SCHEMA}.auth_sessions WHERE user_id=%s ORDER BY created_at DESC LIMIT 10",
-            (target_id,)
+            f"SELECT ip_address, user_agent, created_at, last_seen FROM {SCHEMA}.auth_sessions "
+            f"WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
+            (target_id, 10 if is_comp else 1)
         )
-        sessions = [{'ip': r[0], 'ua': r[1], 'created': r[2].isoformat() if r[2] else None, 'last_seen': r[3].isoformat() if r[3] else None} for r in cur.fetchall()]
+        def mask_ip(ip_str):
+            if not ip_str: return None
+            parts = ip_str.split('.')
+            return '.'.join(parts[:2]) + '.x.x' if len(parts) == 4 else ip_str[:8] + '...'
+
+        sessions = [{
+            'ip':       r[0] if is_comp else mask_ip(r[0]),
+            'ua':       r[1] if is_adm else (r[1][:30] + '...' if r[1] and len(r[1]) > 30 else r[1]),
+            'created':  r[2].isoformat() if r[2] else None,
+            'last_seen': r[3].isoformat() if r[3] else None,
+        } for r in cur.fetchall()]
+
         conn.close()
         return resp(200, {
             'user': {
-                'id': u[0], 'email': u[1], 'username': u[2], 'role': u[3],
+                'id': u[0], 'email': masked_email, 'username': u[2], 'role': u[3],
                 'kyc_status': u[4], 'kyc_level': u[5] or 0,
                 'is_frozen': u[6] or False, 'freeze_reason': u[7],
-                'full_name': u[8], 'birth_date': u[9].isoformat() if u[9] else None,
-                'created_at': u[10].isoformat(), 'last_login': u[11].isoformat() if u[11] else None,
+                # PII — только для Compliance+
+                'full_name':  u[8]  if is_comp else None,
+                'birth_date': u[9].isoformat() if (u[9] and is_comp) else None,
+                'created_at': u[10].isoformat(),
+                'last_login': u[11].isoformat() if u[11] else None,
             },
             'balances': balances, 'transactions': txs, 'sessions': sessions,
+            '_access': admin_role,  # для фронта — знать что показывать
         })
 
     # PUT ?action=freeze — заморозить/разморозить аккаунт
@@ -388,6 +431,44 @@ def handler(event: dict, context) -> dict:
         } for r in rows]
         conn.close()
         return resp(200, {'log': result})
+
+    # ── Circuit Breaker (Superadmin only) ───────────────────────────────────
+    # PUT ?action=circuit-breaker — аварийная остановка/запуск торгов
+    if action == 'circuit-breaker' and method == 'PUT':
+        admin = get_admin(conn, token, 'superadmin')
+        if not admin:
+            conn.close()
+            return resp(403, {'error': 'Только Superadmin может управлять Circuit Breaker'})
+        cb_action = body.get('action')   # 'halt' | 'resume'
+        scope     = body.get('scope', 'all')  # 'all' | 'trading' | 'deposits' | 'withdrawals'
+        reason    = body.get('reason', '')
+        if cb_action not in ('halt', 'resume'):
+            conn.close()
+            return resp(400, {'error': 'action: halt или resume'})
+        is_halted = cb_action == 'halt'
+        # Храним состояние CB в trading_pairs (is_active) или в отдельной таблице
+        if scope in ('all', 'trading'):
+            cur.execute(
+                f"UPDATE {SCHEMA}.trading_pairs SET is_active=%s", (not is_halted,)
+            )
+        audit(cur, admin, f'circuit_breaker.{cb_action}', 'platform', scope,
+              None, {'scope': scope, 'reason': reason}, ip)
+        conn.commit()
+        conn.close()
+        return resp(200, {'ok': True, 'halted': is_halted, 'scope': scope})
+
+    # GET ?action=circuit-breaker — статус CB
+    if action == 'circuit-breaker' and method == 'GET':
+        admin = get_admin(conn, token, 'superadmin')
+        if not admin:
+            conn.close()
+            return resp(403, {'error': 'Нет доступа'})
+        cur.execute(f"SELECT COUNT(*) FILTER (WHERE is_active) FROM {SCHEMA}.trading_pairs")
+        active = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) FROM {SCHEMA}.trading_pairs")
+        total = cur.fetchone()[0]
+        conn.close()
+        return resp(200, {'active_pairs': active, 'total_pairs': total, 'trading_halted': active == 0})
 
     # GET ?action=orders — все открытые ордера (admin+)
     if action == 'orders' and method == 'GET':
