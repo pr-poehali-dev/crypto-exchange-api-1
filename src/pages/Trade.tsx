@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import Icon from '@/components/ui/icon';
+import FortexLogo from '@/components/FortexLogo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Pair {
@@ -243,12 +244,7 @@ export default function Trade() {
 
       {/* ── Top Bar ── */}
       <header className="h-12 border-b border-border flex items-center px-3 gap-3 shrink-0">
-        <Link to="/" className="flex items-center gap-1.5 mr-2">
-          <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-            <Icon name="Hexagon" size={13} className="text-background" />
-          </div>
-          <span className="font-bold text-sm">NEXUS</span>
-        </Link>
+        <Link to="/" className="mr-2"><FortexLogo size="sm" /></Link>
 
         {/* Пары */}
         <div className="flex gap-1 overflow-x-auto scrollbar-hide">

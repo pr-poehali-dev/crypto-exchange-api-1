@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import Icon from '@/components/ui/icon';
+import FortexLogo from '@/components/FortexLogo';
 
 interface Transaction {
   id: number; type: string; currency: string; amount: number;
@@ -320,12 +321,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="h-14 border-b border-border flex items-center px-4 gap-4">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-            <Icon name="Hexagon" size={18} className="text-background" />
-          </div>
-          <span className="font-display text-lg font-bold">NEXUS</span>
-        </Link>
+        <Link to="/"><FortexLogo size="md" /></Link>
         <span className="text-muted-foreground text-sm hidden sm:block">Личный кабинет</span>
         <div className="ml-auto flex items-center gap-3">
           {user.is_admin && (

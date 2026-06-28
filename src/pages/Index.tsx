@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import FortexLogo from '@/components/FortexLogo';
 
 interface Pair {
   symbol: string;
@@ -344,12 +345,7 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
       <header className="h-14 border-b border-border flex items-center px-4 gap-6 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center glow-primary">
-            <Icon name="Hexagon" size={18} className="text-background" />
-          </div>
-          <span className="font-display text-xl font-bold tracking-wide">NEXUS</span>
-        </div>
+        <FortexLogo size="md" />
         <nav className="hidden md:flex items-center gap-1">
           {NAV.map((n) => (
             <button

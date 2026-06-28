@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import Icon from '@/components/ui/icon';
+import FortexLogo from '@/components/FortexLogo';
 
 export default function Register() {
   const { login } = useAuth();
@@ -28,11 +29,10 @@ export default function Register() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mx-auto mb-4">
-            <Icon name="Hexagon" size={24} className="text-background" />
+          <div className="flex justify-center mb-4">
+            <FortexLogo size="lg" />
           </div>
-          <h1 className="text-2xl font-bold font-display">NEXUS Exchange</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Создайте аккаунт</p>
+          <p className="text-muted-foreground mt-2 text-sm">Создайте аккаунт</p>
         </div>
 
         <form onSubmit={submit} className="bg-card border border-border rounded-xl p-6 space-y-4">
